@@ -22,7 +22,7 @@
     "vendor:check": "node scripts/sync-reader-vendor.js --check"
   },
   "devDependencies": {
-    "electron": "44.9.1",
+    "electron": "45.1.0",
     "electron-builder": "26.18.0",
     "pdfjs-dist": "6.4.299"
   },
