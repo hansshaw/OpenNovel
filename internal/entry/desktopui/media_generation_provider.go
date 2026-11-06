@@ -97,6 +97,9 @@ func generateChapterMedia(ctx context.Context, c mediaModelConnection, req gener
 		}
 		return image, "", nil
 	case "audio":
+		if c.Protocol == "breeze-tts" {
+			return generateBreezeSpeech(ctx, c, body, progress)
+		}
 		var merged []byte
 		chunks := speechChunks(body, 4000)
 		voice := c.Voice

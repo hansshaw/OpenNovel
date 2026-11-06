@@ -6,7 +6,7 @@ const { assertTrustedSender } = require("./security");
 
 const formats = new Map([
   ["txt", "导出小说"], ["epub", "导出小说"], ["zip", "导出章节素材包"],
-  ["mp3", "保存章节朗读"], ["mp4", "保存章节视频"],
+  ["mp3", "保存章节朗读"], ["wav", "保存章节朗读"], ["mp4", "保存章节视频"],
   ...["png", "jpg", "jpeg", "webp", "gif"].map(format => [format, "保存章节配图"]),
 ]);
 

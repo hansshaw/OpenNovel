@@ -25,11 +25,11 @@ jobs:
       AINOVEL_DESKTOP_TEST_TRACE: '1'
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '26'
       - name: Install desktop runtime
