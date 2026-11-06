@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -29,15 +30,18 @@ const mediaModelConfigLimit = 1 << 20
 var mediaModelConfigLocks sync.Map
 
 type mediaModelConnection struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Kind        string `json:"kind"`
-	Protocol    string `json:"protocol"`
-	BaseURL     string `json:"baseURL"`
-	Model       string `json:"model"`
-	Description string `json:"description,omitempty"`
-	Voice       string `json:"voice,omitempty"`
-	APIKey      string `json:"apiKey,omitempty"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Kind        string  `json:"kind"`
+	Protocol    string  `json:"protocol"`
+	BaseURL     string  `json:"baseURL"`
+	Model       string  `json:"model"`
+	Description string  `json:"description,omitempty"`
+	Voice       string  `json:"voice,omitempty"`
+	Instruction string  `json:"instruction,omitempty"`
+	CFGScale    float64 `json:"cfgScale,omitempty"`
+	Seed        *int64  `json:"seed,omitempty"`
+	APIKey      string  `json:"apiKey,omitempty"`
 }
 
 type mediaModelConfig struct {
@@ -55,22 +59,28 @@ type mediaModelRequest struct {
 	Model        string            `json:"model"`
 	Description  string            `json:"description"`
 	Voice        string            `json:"voice"`
+	Instruction  string            `json:"instruction"`
+	CFGScale     *float64          `json:"cfgScale"`
+	Seed         *int64            `json:"seed"`
 	APIKey       string            `json:"apiKey"`
 	APIKeyAction host.APIKeyAction `json:"apiKeyAction"`
 	Activate     bool              `json:"activate"`
 }
 
 type mediaModelView struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Kind        string `json:"kind"`
-	Protocol    string `json:"protocol"`
-	BaseURL     string `json:"baseURL"`
-	Model       string `json:"model"`
-	Description string `json:"description"`
-	Voice       string `json:"voice"`
-	HasAPIKey   bool   `json:"hasAPIKey"`
-	APIKeyHint  string `json:"apiKeyHint"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Kind        string  `json:"kind"`
+	Protocol    string  `json:"protocol"`
+	BaseURL     string  `json:"baseURL"`
+	Model       string  `json:"model"`
+	Description string  `json:"description"`
+	Voice       string  `json:"voice"`
+	Instruction string  `json:"instruction,omitempty"`
+	CFGScale    float64 `json:"cfgScale,omitempty"`
+	Seed        *int64  `json:"seed"`
+	HasAPIKey   bool    `json:"hasAPIKey"`
+	APIKeyHint  string  `json:"apiKeyHint"`
 }
 
 func newMediaModelConfig() mediaModelConfig {
@@ -144,6 +154,22 @@ func (s *Server) saveMediaModel(w http.ResponseWriter, r *http.Request) {
 		ID: req.ID, Name: strings.TrimSpace(req.Name), Kind: strings.TrimSpace(req.Kind),
 		Protocol: strings.TrimSpace(req.Protocol), BaseURL: strings.TrimSpace(req.BaseURL),
 		Model: strings.TrimSpace(req.Model), Description: strings.TrimSpace(req.Description), Voice: strings.TrimSpace(req.Voice),
+		Instruction: strings.TrimSpace(req.Instruction), Seed: req.Seed,
+	}
+	if req.CFGScale != nil {
+		connection.CFGScale = *req.CFGScale
+	}
+	if connection.Protocol == "breeze-tts" {
+		connection.BaseURL = breezeBaseURL(connection.BaseURL)
+		if connection.Model == "" {
+			connection.Model = "breeze-tts-2"
+		}
+		if connection.Instruction == "" {
+			connection.Instruction = breezeDefaultInstruction
+		}
+		if req.CFGScale == nil {
+			connection.CFGScale = 4
+		}
 	}
 	if index >= 0 {
 		connection.APIKey = cfg.Connections[index].APIKey
@@ -328,8 +354,27 @@ func validateMediaModelConnection(connection mediaModelConnection) error {
 	if !validMediaKind(connection.Kind) {
 		return errors.New("媒体类型必须是 image、video 或 audio")
 	}
-	if connection.Protocol != "openai-compatible" && connection.Protocol != "custom" {
-		return errors.New("接入协议必须是 openai-compatible 或 custom")
+	if connection.Protocol != "openai-compatible" && connection.Protocol != "custom" && connection.Protocol != "breeze-tts" {
+		return errors.New("接入协议必须是 openai-compatible、breeze-tts 或 custom")
+	}
+	if connection.Protocol == "breeze-tts" {
+		if connection.Kind != "audio" {
+			return errors.New("Breeze TTS 仅适用于语音连接")
+		}
+		if !validMediaText(connection.Instruction, 2000, true) {
+			return errors.New("声音描述不能超过 2000 字或包含无效字符")
+		}
+		if math.IsNaN(connection.CFGScale) || math.IsInf(connection.CFGScale, 0) || connection.CFGScale <= 0 || connection.CFGScale > 10 {
+			return errors.New("Breeze TTS 描述引导强度必须大于 0 且不超过 10")
+		}
+		if connection.Seed != nil && (*connection.Seed < 0 || *connection.Seed > math.MaxUint32) {
+			return errors.New("Breeze TTS 随机种子必须是 0 到 4294967295 的整数，或留空")
+		}
+		if connection.Voice != "" {
+			return errors.New("Breeze TTS 使用声音描述，请清空其他服务的音色 ID")
+		}
+	} else if connection.Instruction != "" || connection.CFGScale != 0 || connection.Seed != nil {
+		return errors.New("声音描述、描述引导强度和随机种子仅适用于 Breeze TTS")
 	}
 	if !validMediaURL(connection.BaseURL) {
 		return errors.New("Base URL 必须是 HTTP/HTTPS 地址，且不能包含凭证、查询参数或片段")
@@ -469,6 +514,7 @@ func replyMediaModels(w http.ResponseWriter, cfg mediaModelConfig, savedID strin
 		connections = append(connections, mediaModelView{
 			ID: c.ID, Name: redact(c.Name), Kind: c.Kind, Protocol: c.Protocol,
 			BaseURL: redact(c.BaseURL), Model: redact(c.Model), Description: redact(c.Description), Voice: redact(c.Voice),
+			Instruction: redact(c.Instruction), CFGScale: c.CFGScale, Seed: c.Seed,
 			HasAPIKey: c.APIKey != "", APIKeyHint: host.MaskAPIKey(c.APIKey),
 		})
 	}

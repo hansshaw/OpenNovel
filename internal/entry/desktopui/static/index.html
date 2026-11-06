@@ -419,7 +419,7 @@
               <aside class="illustration-context">
                 <section class="panel media-bundle"><span class="kicker">CHAPTER MEDIA</span><h3>保存本章素材</h3><p class="muted">将已保存的正文、章节规划和配图一起导出，便于备份或交给其他创作工具继续处理。</p><div class="button-row"><button class="secondary-button" id="media-export-bundle" type="button">导出章节素材包</button></div><p class="hint">ZIP 包含章节资料与图片原文件。</p></section>
                 <section class="panel"><div class="panel-heading"><div><span class="kicker">SOURCE TEXT</span><h3 id="media-source-title">章节内容</h3></div><button class="text-button" id="media-copy-text" type="button">复制</button></div><p class="hint" id="media-source-meta"></p><pre class="media-source-text" id="media-source-text">选择章节后显示已保存的正文或规划。</pre></section>
-                <section class="panel media-capabilities"><h3>媒体模型连接</h3><div id="media-connection-summary"></div><p class="hint">生图、视频、语音各自使用独立的默认模型。只有 OpenAI 兼容连接可执行生成，自定义协议仅保存配置。</p></section>
+                <section class="panel media-capabilities"><h3>媒体模型连接</h3><div id="media-connection-summary"></div><p class="hint">生图、视频、语音各自使用独立的默认模型。支持 OpenAI 兼容接口与 Breeze TTS 配音，自定义协议仅保存配置。</p></section>
               </aside>
             </div>
           </section>
@@ -623,16 +623,22 @@
             <label>编辑已保存的语音连接<select id="media-audio-saved"><option value="">＋ 添加语音连接</option></select></label>
             <div class="form-grid">
               <label>连接名称<input id="media-audio-name" required maxlength="80" placeholder="我的朗读服务" /></label>
-              <label>协议<select id="media-audio-protocol"><option value="openai-compatible">OpenAI 兼容</option><option value="custom">自定义接口（仅保存配置）</option></select></label>
-              <label class="wide">模型 ID<span class="model-input-row"><input id="media-audio-id" required maxlength="200" list="media-audio-options" placeholder="填写服务商的语音模型 ID" /><button class="text-button" id="media-audio-fetch" type="button">从上游获取模型</button></span></label>
+              <label>配音方式<select id="media-audio-protocol"><option value="openai-compatible">OpenAI 兼容</option><option value="breeze-tts">Breeze TTS 2（本地 / 自部署）</option><option value="custom">自定义接口（仅保存配置）</option></select></label>
+              <label class="wide"><span id="media-audio-model-label">模型 ID</span><span class="model-input-row"><input id="media-audio-id" required maxlength="200" list="media-audio-options" placeholder="填写服务商的语音模型 ID" /><button class="text-button" id="media-audio-fetch" type="button">从上游获取模型</button></span></label>
               <datalist id="media-audio-options"></datalist>
               <label class="wide">Base URL<input id="media-audio-url" type="url" required placeholder="https://your-provider.example/v1" /></label>
               <label>密钥操作<select id="media-audio-key-action"><option value="keep">保留已保存的 Key</option><option value="replace">设置 / 替换 Key</option><option value="clear">清除 Key</option></select></label>
               <label>API Key<input id="media-audio-key" type="password" autocomplete="new-password" disabled placeholder="选择设置 / 替换后填写" /></label>
-              <label>朗读音色<input id="media-audio-voice" maxlength="120" placeholder="例如 alloy，填写服务商支持的 voice ID" /></label>
+              <label id="media-audio-voice-field">朗读音色<input id="media-audio-voice" maxlength="120" placeholder="例如 alloy，填写服务商支持的 voice ID" /></label>
               <label>接入说明（可选）<input id="media-audio-description" maxlength="1000" placeholder="服务商或模型备注" /></label>
+              <div id="media-audio-breeze-fields" class="wide form-grid hidden">
+                <label class="wide">声音描述<textarea id="media-audio-instruction" rows="3" maxlength="2000" disabled placeholder="例如：温柔沉稳的女声，咬字清晰，适合睡前故事。"></textarea><span class="hint">用一两句话描述音色、情绪和语速；中文正文建议使用中文描述。留空使用默认中文旁白。</span></label>
+                <label>描述引导强度<input id="media-audio-cfg-scale" type="number" min="0.1" max="10" step="0.1" value="4" required disabled /><span class="hint">建议 4；数值越高，越强调声音描述。</span></label>
+                <label>声音随机种子（可选）<input id="media-audio-seed" type="number" min="0" max="4294967295" step="1" value="42" disabled placeholder="留空则随机" /><span class="hint">固定种子有助于重复生成；留空探索不同声音。</span></label>
+              </div>
             </div>
-            <p class="hint">OpenAI 兼容连接使用 /audio/speech。自定义协议暂不执行生成；请确认服务商支持对应接口。</p>
+            <p class="hint" id="media-audio-protocol-hint">OpenAI 兼容连接使用 /audio/speech。自定义协议暂不执行生成；请确认服务商支持对应接口。</p>
+            <p class="hint hidden" id="media-audio-breeze-info">先在 Linux / NVIDIA GPU 设备上启动 Breeze TTS 服务，再填写服务地址。长章节自动分段，完成后可播放或下载 WAV。模型权重与自部署输出仅限研究和非商业用途，详见 <a href="https://github.com/breezeblue-ai/breeze-tts#license-and-responsible-use" target="_blank" rel="noopener noreferrer">Breeze TTS 官方说明</a>。</p>
             <label class="rewrite-auto-option"><input id="media-audio-activate" type="checkbox" checked /><span>保存后设为默认语音模型</span></label>
             <p class="hint" id="media-audio-key-hint"></p>
             <p class="form-status" id="media-audio-status" role="status" aria-live="polite"></p>
