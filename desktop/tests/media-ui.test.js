@@ -36,6 +36,7 @@ function harness() {
   const panel = browser.window.NovelMedia.create({ api: async (url, options) => { calls.push({ url, options }); return respond(url, options); }, el, button, getContext: () => context, getChapters: () => chapters, setView: () => {}, toast: (value) => notices.push(value), download: async (url, filename) => { downloads.push({ url, filename }); } });
   panel.bindEvents();
   for (const kind of ["image", "video", "audio"]) for (const field of ["name", "key", "voice", "save", "saved", "protocol", "id", "url", "description", "activate", "key-action", "delete", "fetch"]) $(`media-${kind}-form`).append($(`media-${kind}-${field}`));
+  for (const field of ["instruction", "cfg-scale", "seed"]) $("media-audio-form").append($(`media-audio-${field}`));
   return { $, panel, calls, notices, downloads, module: browser.window.NovelMedia,
     context: (values) => { context = { ...context, ...values }; },
     respond: (fn) => { respond = fn; },
@@ -128,7 +129,7 @@ test("unchanged media polling retains image elements instead of downloading the 
 });
 
 const allConfig = () => ({
-  connections: ["image", "video", "audio"].map((kind) => ({ id: `${kind}-connection`, kind, name: `${kind} 服务`, model: `${kind}-model`, protocol: "openai-compatible", baseURL: `https://${kind}.example/v1`, voice: kind === "audio" ? "alloy" : "", hasAPIKey: true })),
+  connections: ["image", "video", "audio"].map((kind) => ({ id: `${kind}-connection`, kind, name: `${kind} 服务`, model: `${kind}-model`, protocol: "openai-compatible", baseURL: `https://${kind}.example/v1`, voice: kind === "audio" ? "alloy" : "", seed: null, hasAPIKey: true })),
   selected: { image: "image-connection", video: "video-connection", audio: "audio-connection" }, generationAvailable: true,
 });
 const job = (kind, status = "completed") => ({ id: `${kind}-job`, chapter: 1, kind, source: "final", status, model: `${kind}-model`, createdAt: "2026-10-23T10:00:00Z", url: status === "completed" ? `/api/chapters/1/media/generate/${kind}-job/content?directory=%2Fbooks%2Fone` : "", mime: kind === "audio" ? "audio/mpeg" : kind === "video" ? "video/mp4" : "image/png" });
@@ -286,4 +287,97 @@ test("changing a media endpoint clears stale choices and custom protocols disabl
   const count = h.calls.length; await h.fire("media-image-fetch", "click");
   assert.equal(h.calls.length, count);
   assert.equal(h.$("media-image-id").disabled, false);
+});
+
+test("Breeze TTS presets an unauthenticated connection and only enables its voice design fields", async () => {
+  const h = harness(); await h.panel.loadConfig();
+  assert.equal(h.$("media-audio-instruction").disabled, true);
+  h.$("media-audio-protocol").value = "breeze-tts"; await h.fire("media-audio-protocol", "input");
+  assert.equal(h.$("media-audio-url").value, "http://127.0.0.1:7860/v1");
+  assert.equal(h.$("media-audio-id").value, "breeze-tts-2");
+  assert.equal(h.$("media-audio-key-action").value, "keep");
+  assert.equal(h.$("media-audio-key").disabled, true);
+  assert.equal(h.$("media-audio-fetch").disabled, true);
+  assert.equal(h.$("media-audio-voice").disabled, true);
+  assert.equal(h.$("media-audio-voice-field").attributes.hidden, true);
+  assert.equal(h.$("media-audio-breeze-fields").attributes.hidden, false);
+  assert.equal(h.$("media-audio-instruction").disabled, false);
+  assert.match(h.$("media-audio-instruction").value, /中文旁白/);
+  assert.equal(h.$("media-audio-cfg-scale").value, "4");
+  assert.equal(h.$("media-audio-seed").value, "42");
+  const count = h.calls.length; await h.fire("media-audio-fetch", "click");
+  assert.equal(h.calls.length, count, "Breeze does not implement OpenAI model discovery");
+  h.$("media-audio-protocol").value = "openai-compatible"; await h.fire("media-audio-protocol", "input");
+  assert.equal(h.$("media-audio-url").value, "");
+  assert.equal(h.$("media-audio-id").value, "");
+  assert.equal(h.$("media-audio-instruction").disabled, true);
+  assert.equal(h.$("media-audio-cfg-scale").disabled, true);
+  assert.equal(h.$("media-audio-voice").disabled, false);
+  assert.equal(h.$("media-audio-fetch").disabled, false);
+});
+
+test("changing a saved audio protocol preserves custom edits and explicitly clears the previous provider key", async () => {
+  const h = harness(); h.respond(async (url) => mediaResponse(url)); await h.panel.loadConfig();
+  h.$("media-audio-saved").value = "audio-connection"; await h.fire("media-audio-saved", "change");
+  h.$("media-audio-name").value = "我的远程配音";
+  h.$("media-audio-url").value = "https://breeze.example/v1";
+  h.$("media-audio-key").value = "stray-secret";
+  h.$("media-audio-protocol").value = "breeze-tts"; await h.fire("media-audio-protocol", "input");
+  assert.equal(h.$("media-audio-name").value, "我的远程配音");
+  assert.equal(h.$("media-audio-url").value, "https://breeze.example/v1");
+  assert.equal(h.$("media-audio-key").value, "");
+  assert.equal(h.$("media-audio-key-action").value, "clear");
+  assert.equal(h.$("media-audio-seed").value, "42", "an old OpenAI connection has no Breeze random-seed preference");
+  assert.match(h.$("media-audio-key-hint").textContent, /清除原服务 Key/);
+  h.$("media-audio-protocol").value = "openai-compatible"; await h.fire("media-audio-protocol", "input");
+  assert.equal(h.$("media-audio-name").value, "我的远程配音");
+  assert.equal(h.$("media-audio-url").value, "https://breeze.example/v1");
+  assert.equal(h.$("media-audio-voice").value, "alloy");
+});
+
+const breezeConfig = (seed = 42) => ({
+  connections: [{ id: "breeze-connection", kind: "audio", name: "本地旁白", model: "breeze-tts-2", protocol: "breeze-tts", baseURL: "http://127.0.0.1:7860/v1", instruction: "平稳清晰的旁白", cfgScale: 3.5, seed, hasAPIKey: false }],
+  selected: { image: "", video: "", audio: "breeze-connection" }, generationAvailable: true,
+});
+
+test("Breeze saves voice design parameters and round-trips seed zero and random without treating them as defaults", async () => {
+  for (const seed of [0, null]) {
+    const h = harness(), models = breezeConfig(seed); h.respond(async () => models); await h.panel.loadConfig();
+    h.$("media-audio-saved").value = "breeze-connection"; await h.fire("media-audio-saved", "change");
+    assert.equal(h.$("media-audio-seed").value, seed === null ? "" : "0");
+    assert.equal(h.$("media-audio-instruction").value, "平稳清晰的旁白");
+    assert.equal(h.$("media-audio-cfg-scale").value, "3.5");
+    h.$("media-audio-voice").value = "unused-voice";
+    h.respond(async (_url, options) => {
+      assert.equal(options.body.protocol, "breeze-tts");
+      assert.equal(options.body.instruction, "平稳清晰的旁白");
+      assert.equal(options.body.cfgScale, 3.5);
+      assert.equal(options.body.seed, seed);
+      assert.equal(options.body.voice, "");
+      assert.equal(options.body.apiKeyAction, "keep");
+      return { ...models, savedID: "breeze-connection" };
+    });
+    await h.fire("media-audio-form", "submit");
+    assert.equal(h.$("media-audio-seed").value, seed === null ? "" : "0");
+  }
+});
+
+test("Breeze generates saved chapter audio and downloads a WAV while preserving the audio player", async () => {
+  const h = harness(), models = breezeConfig(), audio = { ...job("audio"), mime: "audio/wav", model: "breeze-tts-2" };
+  h.respond(async (url) => mediaResponse(url, { models, jobs: [audio] })); await h.panel.load();
+  assert.equal(h.$("media-generate-audio").disabled, false);
+  assert.equal(h.$("media-generate-image").disabled, true);
+  const card = h.$("media-generation-results").children[0], player = card.children.find((node) => node.tag === "audio");
+  player.currentTime = 9; await h.panel.loadGeneration();
+  assert.equal(h.$("media-generation-results").children[0], card);
+  assert.equal(player.currentTime, 9);
+  await card.children.at(-1).children[0].listeners.get("click")();
+  assert.match(h.downloads[0].filename, /\.wav$/);
+  h.$("media-generation-instructions").value = "不能用于配音的画面描述";
+  h.respond(async (url, options) => options?.method === "POST" ? job("audio", "running") : mediaResponse(url, { models, jobs: [job("audio", "running")] }));
+  await h.panel.generate("audio");
+  const request = h.calls.find((call) => call.options?.method === "POST");
+  assert.equal(request.options.body.kind, "audio");
+  assert.equal(request.options.body.instructions, "");
+  assert.equal(h.$("media-generate-audio").disabled, true);
 });

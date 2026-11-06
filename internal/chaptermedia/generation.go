@@ -40,6 +40,8 @@ func generationExt(mime string) string {
 	switch mime {
 	case "audio/mpeg":
 		return ".mp3"
+	case "audio/wav":
+		return ".wav"
 	case "video/mp4":
 		return ".mp4"
 	}

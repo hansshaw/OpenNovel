@@ -84,6 +84,29 @@ test("Android export cancels native temporary data when transfer fails", async (
   assert.match(canceled, /^export-/);
 });
 
+test("Android WAV downloads reach the native save flow with the original audio bytes", async () => {
+  const chunks = [];
+  let window, finish, ready;
+  const reachedPicker = new Promise(resolve => { ready = resolve; });
+  const native = {
+    beginExport: () => "",
+    appendExport: (_id, base64) => { chunks.push(Buffer.from(base64, "base64")); return ""; },
+    finishExport: (id, filename, format) => {
+      assert.equal(filename, "chapter-2.wav"); assert.equal(format, "wav");
+      finish = () => window.ainovelAndroidExportComplete(id, true, null);
+      ready();
+      return "";
+    }, cancelExport: () => assert.fail("unexpected cancel"),
+  };
+  window = load(native);
+  const source = new Uint8Array([82, 73, 70, 70, 40, 0, 0, 0, 87, 65, 86, 69, 0, 128, 255, 127]);
+  const pending = window.ainovelDesktop.saveExport({ filename: "chapter-2.wav", format: "WAV", data: source });
+  await reachedPicker;
+  assert.deepEqual(Buffer.concat(chunks), Buffer.from(source));
+  finish();
+  assert.equal((await pending).saved, true);
+});
+
 test("Android system picker cancellation resolves without claiming a saved file", async () => {
   let window;
   window = load({ beginExport: () => "", appendExport: () => "", cancelExport() {}, finishExport: id => {

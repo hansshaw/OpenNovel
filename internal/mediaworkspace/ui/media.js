@@ -3,6 +3,7 @@
 
   const KINDS = { image: "AI 生图", video: "视频生成", audio: "章节朗读" };
   const JOB_STATES = { running: "生成中", completed: "已完成", failed: "失败", cancelled: "已取消" };
+  const BREEZE = { name: "Breeze TTS 配音", baseURL: "http://127.0.0.1:7860/v1", model: "breeze-tts-2", instruction: "一位声音自然清晰的中文旁白，语速适中，语气平稳，适合有声书朗读。" };
   window.NovelMedia = {
     create({ api, el, button, getContext, getChapters, setView, toast, download }) {
       const $ = (id) => document.getElementById(id);
@@ -188,7 +189,8 @@
         for (const kind of Object.keys(KINDS)) {
           const connection = selectedConnection(kind);
           const running = generationJobs.some((job) => job.kind === kind && job.status === "running");
-          $("media-generate-" + kind).disabled = blocked || running || !connection || connection.protocol !== "openai-compatible";
+          const supported = connection?.protocol === "openai-compatible" || (kind === "audio" && connection?.protocol === "breeze-tts");
+          $("media-generate-" + kind).disabled = blocked || running || !supported;
           $("media-generation-" + kind + "-model").textContent = !connection ? `尚未配置${KINDS[kind]}模型`
             : `${connection.name} / ${connection.model}${connection.protocol === "custom" ? " · 自定义协议暂不能生成" : running ? " · 正在生成" : ""}`;
         }
@@ -272,6 +274,45 @@
           model(kind, "default").disabled = value;
           if (!value) { model(kind, "key").disabled = model(kind, "key-action").value !== "replace"; model(kind, "delete").disabled = !model(kind, "saved").value; model(kind, "fetch").disabled = model(kind, "protocol").value !== "openai-compatible"; }
         }
+        renderAudioProtocol();
+      }
+      function renderAudioProtocol() {
+        const breeze = model("audio", "protocol").value === "breeze-tts";
+        model("audio", "breeze-fields").classList.toggle("hidden", !breeze);
+        model("audio", "breeze-info").classList.toggle("hidden", !breeze);
+        model("audio", "voice-field").classList.toggle("hidden", breeze);
+        model("audio", "voice").disabled = configBusy || breeze;
+        for (const field of ["instruction", "cfg-scale", "seed"]) model("audio", field).disabled = configBusy || !breeze;
+        model("audio", "fetch").classList.toggle("hidden", breeze);
+        model("audio", "model-label").textContent = breeze ? "模型标记" : "模型 ID";
+        model("audio", "url").placeholder = breeze ? BREEZE.baseURL : "https://your-provider.example/v1";
+        model("audio", "id").placeholder = breeze ? BREEZE.model : "填写服务商的语音模型 ID";
+        model("audio", "protocol-hint").textContent = breeze
+          ? "Breeze 根据声音描述为章节配音；实际模型由服务端加载，模型标记用于区分任务。本地服务通常无需 API Key。"
+          : "OpenAI 兼容连接使用 /audio/speech。自定义协议暂不执行生成；请确认服务商支持对应接口。";
+      }
+      function changeAudioProtocol() {
+        const protocol = model("audio", "protocol").value;
+        const previous = model("audio", "protocol").dataset.previous;
+        if (previous === protocol) return;
+        model("audio", "protocol").dataset.previous = protocol;
+        if (protocol === "breeze-tts") {
+          for (const [field, value] of Object.entries({ name: BREEZE.name, url: BREEZE.baseURL, id: BREEZE.model })) {
+            if (!model("audio", field).value.trim()) model("audio", field).value = value;
+          }
+        } else if (previous === "breeze-tts") {
+          for (const [field, value] of Object.entries({ name: BREEZE.name, url: BREEZE.baseURL, id: BREEZE.model })) {
+            if (model("audio", field).value === value) model("audio", field).value = "";
+          }
+        }
+        // A saved key belongs to the previous provider. Switching protocol must
+        // make retaining that credential an explicit choice before the next save.
+        const saved = (config.connections || []).find((item) => item.id === model("audio", "saved").value && item.kind === "audio");
+        model("audio", "key").value = "";
+        model("audio", "key-action").value = saved?.hasAPIKey ? "clear" : protocol === "breeze-tts" ? "keep" : "replace";
+        model("audio", "key-hint").textContent = saved?.hasAPIKey
+          ? "配音方式已切换，保存时将清除原服务 Key；若新服务使用同一 Key，请明确选择保留。"
+          : protocol === "breeze-tts" ? "本地 Breeze TTS 通常无需 Key；远程服务如有鉴权，可选择设置 / 替换。" : "未保存 Key；本地免密服务可选择保留并留空。";
       }
       function renderConfig() {
         const summary = $("media-connection-summary"); summary.replaceChildren();
@@ -307,7 +348,13 @@
         model(kind, "options").replaceChildren(...(item.model ? [option(item.model, item.model)] : []));
         model(kind, "status").textContent = "";
         for (const [field, target] of Object.entries({ name: "name", protocol: "protocol", model: "id", baseURL: "url", description: "description" })) model(kind, target).value = item[field] || (field === "protocol" ? "openai-compatible" : "");
-        if (kind === "audio") model(kind, "voice").value = item.voice || "";
+        if (kind === "audio") {
+          model(kind, "voice").value = item.voice || "";
+          model(kind, "instruction").value = item.instruction ?? BREEZE.instruction;
+          model(kind, "cfg-scale").value = String(item.cfgScale ?? 4);
+          model(kind, "seed").value = item.protocol === "breeze-tts" && item.seed === null ? "" : String(item.seed ?? 42);
+          model(kind, "protocol").dataset.previous = model(kind, "protocol").value;
+        }
         model(kind, "key").value = ""; model(kind, "key-action").value = item.id ? "keep" : "replace";
         model(kind, "activate").checked = !item.id || config.selected?.[kind] === item.id;
         model(kind, "key-hint").textContent = item.hasAPIKey ? `已保存 Key：${item.apiKeyHint || "已隐藏"}` : "未保存 Key；本地免密服务可选择保留并留空。";
@@ -386,13 +433,20 @@
           model(kind, "saved").addEventListener("change", () => { if (!configBusy) fillModel(kind, model(kind, "saved").value); });
           model(kind, "fetch").addEventListener("click", () => fetchModels(kind));
           for (const field of ["protocol", "url", "key"]) model(kind, field).addEventListener("input", () => {
+            if (kind === "audio" && field === "protocol") changeAudioProtocol();
             model(kind, "options").replaceChildren(); setConfigBusy(configBusy);
           });
           model(kind, "key-action").addEventListener("change", () => { model(kind, "options").replaceChildren(); if (model(kind, "key-action").value !== "replace") model(kind, "key").value = ""; setConfigBusy(configBusy); });
           model(kind, "default").addEventListener("change", () => configMutation(kind, () => api("/api/media-models/select", { method: "POST", body: { kind, id: model(kind, "default").value }, normalizeResponse: false })));
           model(kind, "form").addEventListener("submit", (event) => {
             event.preventDefault();
-            const body = { id: model(kind, "saved").value, name: model(kind, "name").value.trim(), kind, protocol: model(kind, "protocol").value, baseURL: model(kind, "url").value.trim(), model: model(kind, "id").value.trim(), voice: kind === "audio" ? model(kind, "voice").value.trim() : "", description: model(kind, "description").value.trim(), apiKeyAction: model(kind, "key-action").value, apiKey: model(kind, "key-action").value === "replace" ? model(kind, "key").value : "", activate: model(kind, "activate").checked };
+            const breeze = kind === "audio" && model(kind, "protocol").value === "breeze-tts";
+            const body = { id: model(kind, "saved").value, name: model(kind, "name").value.trim(), kind, protocol: model(kind, "protocol").value, baseURL: model(kind, "url").value.trim(), model: model(kind, "id").value.trim(), voice: kind === "audio" && !breeze ? model(kind, "voice").value.trim() : "", description: model(kind, "description").value.trim(), apiKeyAction: model(kind, "key-action").value, apiKey: model(kind, "key-action").value === "replace" ? model(kind, "key").value : "", activate: model(kind, "activate").checked };
+            if (breeze) {
+              body.instruction = model(kind, "instruction").value.trim();
+              body.cfgScale = Number(model(kind, "cfg-scale").value);
+              body.seed = model(kind, "seed").value.trim() === "" ? null : Number(model(kind, "seed").value);
+            }
             return configMutation(kind, () => api("/api/media-models", { method: "POST", body, normalizeResponse: false }), (result) => fillModel(kind, result.savedID));
           });
           model(kind, "delete").addEventListener("click", () => { const id = model(kind, "saved").value; if (id) return configMutation(kind, () => api(`/api/media-models/${encodeURIComponent(id)}`, { method: "DELETE", normalizeResponse: false }), () => fillModel(kind, "")); });

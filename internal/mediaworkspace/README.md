@@ -13,6 +13,10 @@
 - `internal/entry/desktopui/chapter_media_generation.go`：读取指定章节已保存的正文，维护异步生成任务、取消、来源校验及同源内容接口。
 - `internal/entry/desktopui/media_generation_provider.go`：Images、Videos、Audio Speech 的 OpenAI 兼容请求。Key 只在后端使用，返回图片 URL 的下载不携带 Key。音视频不会改写章节正文。
 
+语音额外支持 `breeze-tts` 协议，对接官方 Breeze TTS 2 `/v1/audio/speech` multipart 接口。配置使用 `instruction` 声音描述、`cfgScale` 与 `seed`，不使用 OpenAI 音色 ID。后端逐段串行请求并将单声道 s16le PCM 封装为 WAV，沿用章节生成的取消、来源校验、大小限制及播放/下载流程。本次提供 Voice Design，不提供参考音频克隆。声音描述来自语音连接设置，图片/视频画面要求不参与音频生成。
+
+推理服务由用户通过 [`scripts/breeze-tts.sh`](../../scripts/breeze-tts.sh) 独立准备和启动，模块不自动安装 Python 或下载模型；运行环境及许可证见 [Breeze TTS 配音接入指南](../../docs/breeze-tts.md)。
+
 模型配置按 image、video、audio 分为三个独立面板。生成请求必须携带项目目录、章节号、媒体类型和正式正文/草稿来源；正文在后端读取，界面预览或章节规划不能冒充正文。每次提交会记录来源 SHA-256，任务卡按项目与章节过滤，并保留正在播放的 audio/video 节点，避免轮询打断播放。
 
 ## 素材包
