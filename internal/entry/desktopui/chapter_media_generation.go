@@ -130,8 +130,8 @@ func (s *Server) startChapterGeneration(w http.ResponseWriter, r *http.Request, 
 		fail(w, 400, "请先在对应类型的模型设置中选择默认连接")
 		return
 	}
-	if connection.Protocol != "openai-compatible" {
-		fail(w, 400, "该连接使用自定义协议，尚不能生成；请选择支持 Images、Videos 或 Audio Speech API 的 OpenAI 兼容连接")
+	if connection.Protocol != "openai-compatible" && !(req.Kind == "audio" && connection.Protocol == "breeze-tts") {
+		fail(w, 400, "该连接使用自定义协议，尚不能生成；请选择 OpenAI 兼容连接，或使用 Breeze TTS 配音")
 		return
 	}
 	s.mu.Lock()
@@ -347,7 +347,7 @@ func (s *Server) chapterGenerationContent(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", g.MIME)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, no-store")
-	ext := map[string]string{"audio/mpeg": ".mp3", "video/mp4": ".mp4", "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}[g.MIME]
+	ext := map[string]string{"audio/mpeg": ".mp3", "audio/wav": ".wav", "video/mp4": ".mp4", "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}[g.MIME]
 	http.ServeContent(w, r, fmt.Sprintf("chapter-%d-%s%s", chapter, g.ID, ext), time.Time{}, bytes.NewReader(data))
 }
 

@@ -78,6 +78,10 @@ jobs:
           node --check desktop/security.js
       - name: Desktop database and trust boundary tests
         run: npm --prefix desktop test
+      - name: Breeze TTS installer smoke tests
+        run: |
+          bash -n scripts/breeze-tts.sh
+          python3 scripts/test_breeze_tts.py
       - name: Set up Java
         uses: actions/setup-java@v6
         with:

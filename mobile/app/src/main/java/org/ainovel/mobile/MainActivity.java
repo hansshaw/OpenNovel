@@ -337,7 +337,7 @@ public final class MainActivity extends Activity {
             if (!id.equals(exportId) || stream == null || committed) return "导出会话已结束";
             String mime = switch (format) {
                 case "txt" -> "text/plain"; case "epub" -> "application/epub+zip"; case "zip" -> "application/zip";
-                case "mp3" -> "audio/mpeg"; case "mp4" -> "video/mp4"; case "png" -> "image/png";
+                case "mp3" -> "audio/mpeg"; case "wav" -> "audio/wav"; case "mp4" -> "video/mp4"; case "png" -> "image/png";
                 case "jpg", "jpeg" -> "image/jpeg"; case "webp" -> "image/webp"; case "gif" -> "image/gif";
                 default -> null;
             };

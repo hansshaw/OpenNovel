@@ -27,7 +27,7 @@ function harness(t, { canceled = false, isSmokeTest = false } = {}) {
 
 test("chapter image, audio and video downloads save their exact bytes with matching file filters", async t => {
   const h = harness(t);
-  for (const format of ["png", "jpg", "jpeg", "gif", "webp", "mp3", "mp4", "zip", "txt", "epub"]) {
+  for (const format of ["png", "jpg", "jpeg", "gif", "webp", "mp3", "wav", "mp4", "zip", "txt", "epub"]) {
     const data = new Uint8Array([0, 1, 137, 255, 13, 10]);
     const result = await h.call({ format, filename: `chapter-2.${format}`, data });
     assert.equal(result.saved, true);

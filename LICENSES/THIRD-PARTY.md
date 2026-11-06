@@ -59,3 +59,19 @@ dependencies; versions are fixed in desktop/package-lock.json.
 The inherited source attribution and original Apache-2.0 license are preserved
 in the root NOTICE and this directory. No third-party attribution is removed
 by the repository's Git-history cleanup.
+
+## Optional Breeze TTS service
+
+The application includes an original HTTP adapter for the separately installed
+[Breeze TTS 2 inference service](https://github.com/breezeblue-ai/breeze-tts).
+No Breeze source, Python dependencies or model weights are bundled in this
+repository or its application packages. The optional setup script downloads
+upstream source commit `daa6cb2efe5471f09369229f322d20bb956cb3c3` into the user's
+separate runtime directory, retaining its [Apache-2.0 license](https://github.com/breezeblue-ai/breeze-tts/blob/daa6cb2efe5471f09369229f322d20bb956cb3c3/LICENSE).
+
+Model weights, derivative models and self-hosted outputs are governed separately
+by the [BreezeBlue Research and Non-Commercial License](https://huggingface.co/BreezeBlue/breeze-tts-2/blob/main/LICENSE).
+They are restricted to research and non-commercial use; commercial use requires
+a separate written license from BreezeBlue. The application's AGPL license does
+not grant rights to those model materials or outputs. See the
+[setup guide](../docs/breeze-tts.md) for the integration and deployment scope.
