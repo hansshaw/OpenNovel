@@ -3,6 +3,28 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
+async function focusReaderWindow(window, { timeoutMs = 5000, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  window.show(); window.focus();
+  const deadline = now() + timeoutMs;
+  while (now() < deadline) {
+    // BrowserWindow.focus() only requests focus. Chromium can reject fullscreen
+    // on an unfocused document, including immediately after leaving fullscreen.
+    window.webContents.focus();
+    if (await window.webContents.executeJavaScript("document.hasFocus()")) return;
+    await sleep(100);
+  }
+  throw new Error("Reader document did not receive focus before fullscreen");
+}
+
+async function waitForNativeFullscreen(window, expected, { timeoutMs = 5000, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  const deadline = now() + timeoutMs;
+  while (now() < deadline) {
+    if (window.isFullScreen() === expected) return;
+    await sleep(30);
+  }
+  throw new Error(`Reader native window did not ${expected ? "enter" : "leave"} fullscreen`);
+}
+
 async function waitForPDFCanvas({ readState, captureFrame, timeoutMs = 15000, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   const deadline = now() + timeoutMs;
   let diagnostic, captureFailures = 0, lastCaptureError = "", captureAfter = -Infinity;
@@ -78,13 +100,16 @@ async function runReaderChecks({ window, options, phase, api, step, waitForUI })
     await waitForUI(`document.getElementById(${JSON.stringify(id)}).open && Array.from(document.querySelectorAll('.nr-reading-tools > details')).filter(panel=>panel.open).length===1`, "Reader tool panels did not switch exclusively");
   };
   const enterFullscreen = async () => {
-    window.show(); window.focus();
+    await waitForUI('!document.getElementById("nr-fullscreen").disabled && document.getElementById("novel-reader-root").dataset.fullscreenLayout !== "pending"', "Reader fullscreen control did not become ready");
+    await focusReaderWindow(window);
     await window.webContents.executeJavaScript('document.getElementById("nr-fullscreen").click()', true);
     await waitForUI('document.fullscreenElement === document.getElementById("novel-reader-root") && document.getElementById("novel-reader-root").dataset.fullscreenLayout === "ready"', "Reader did not enter native fullscreen", 10000);
+    await waitForNativeFullscreen(window, true);
   };
   const exitFullscreen = async () => {
     await run('document.getElementById("nr-fullscreen").click()');
     await waitForUI('!document.fullscreenElement && document.getElementById("nr-fullscreen").getAttribute("aria-pressed") === "false" && document.getElementById("novel-reader-root").dataset.fullscreenLayout === "ready"', "Reader did not leave native fullscreen", 10000);
+    await waitForNativeFullscreen(window, false);
   };
   const savedAppearance = await run("window.ainovelDesktop.getAppearance()");
   const savedBounds = window.getBounds(), savedZoom = window.webContents.getZoomFactor();
@@ -347,6 +372,7 @@ async function runReaderChecks({ window, options, phase, api, step, waitForUI })
       await capture("reader-fullscreen.png");
       window.webContents.sendInputEvent({type:"keyDown",keyCode:"Escape"}); window.webContents.sendInputEvent({type:"keyUp",keyCode:"Escape"});
       await waitForUI('!document.fullscreenElement && document.getElementById("novel-reader-root").dataset.fullscreenLayout === "ready"', "Escape did not exit fullscreen", 10000);
+      await waitForNativeFullscreen(window, false);
       const exited = await run('(() => {const p=document.getElementById("nr-page");return {offset:p.scrollTop/(p.scrollHeight-p.clientHeight),top:p.scrollTop,width:p.clientWidth,height:p.clientHeight,scrollHeight:p.scrollHeight}})()');
       assert.ok(Math.abs(exited.offset-position)<.01, `Escape moved the reading position: ${JSON.stringify({before,expanded,exited})}`);
       await chapter(2);
@@ -362,6 +388,7 @@ async function runReaderChecks({ window, options, phase, api, step, waitForUI })
       await showReaderTools("creation");
       await run('document.getElementById("nr-audio").click()');
       await waitForUI('!document.fullscreenElement && !document.getElementById("view-illustrations").classList.contains("hidden")', "Reader media action did not leave fullscreen");
+      await waitForNativeFullscreen(window, false);
       await openReader(); await waitForUI('!document.getElementById("nr-fullscreen").disabled', "Reader did not return from media navigation");
       await enterFullscreen(); await exitFullscreen();
       assert.equal(await run('document.getElementById("nr-theme").value'), "sepia");
@@ -436,4 +463,4 @@ async function runReaderChecks({ window, options, phase, api, step, waitForUI })
     window.webContents.setBackgroundThrottling(wasThrottled);
   }
 }
-module.exports = { runReaderChecks, waitForPDFCanvas };
+module.exports = { runReaderChecks, waitForPDFCanvas, focusReaderWindow, waitForNativeFullscreen };

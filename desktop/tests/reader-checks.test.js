@@ -1,11 +1,41 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { waitForPDFCanvas } = require("../scripts/reader-checks.js");
+const { waitForPDFCanvas, focusReaderWindow, waitForNativeFullscreen } = require("../scripts/reader-checks.js");
 
 const pending = { canvas: { width: 400, height: 500 }, note: "正在绘制 PDF 原页…", hidden: false };
 const finished = { ...pending, note: "" };
 function clock() { let time = 0; return { now: () => time, sleep: async ms => { time += ms; } }; }
+
+test("fullscreen preparation waits for renderer focus even after the native focus request returns", async () => {
+  const actions = []; let focusAttempts = 0;
+  const window = {
+    show() { actions.push("show"); }, focus() { actions.push("native-focus"); },
+    webContents: {
+      focus() { focusAttempts++; },
+      executeJavaScript: async () => focusAttempts >= 3,
+    },
+  };
+  await focusReaderWindow(window, clock());
+  assert.deepEqual(actions, ["show", "native-focus"]);
+  assert.equal(focusAttempts, 3);
+});
+
+test("a document that cannot gain focus fails instead of issuing a fullscreen request", async () => {
+  let attempts = 0;
+  const window = { show() {}, focus() {}, webContents: { focus() { attempts++; }, executeJavaScript: async () => false } };
+  await assert.rejects(focusReaderWindow(window, { ...clock(), timeoutMs: 300 }), /did not receive focus/);
+  assert.equal(attempts, 3);
+});
+
+test("fullscreen checks wait for both native entry and native exit and never accept a stuck transition", async () => {
+  for (const expected of [true, false]) {
+    let reads = 0;
+    await waitForNativeFullscreen({ isFullScreen: () => ++reads >= 3 ? expected : !expected }, expected, clock());
+    assert.equal(reads, 3);
+    await assert.rejects(waitForNativeFullscreen({ isFullScreen: () => !expected }, expected, { ...clock(), timeoutMs: 90 }), expected ? /did not enter/ : /did not leave/);
+  }
+});
 
 test("PDF canvas readiness does not require copying an already rendered compositor surface", async () => {
   let captures = 0;
