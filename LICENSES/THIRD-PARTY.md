@@ -5,38 +5,39 @@ original licenses; the retained license files are authoritative.
 
 ## Go dependencies
 
-License and notice files copied unmodified from the exact versions in go.sum:
+License and notice files copied unmodified from the exact versions in go.sum,
+including dependencies used by upstream tests:
 
 | Module | Version | Notices |
 | --- | --- | --- |
-| `github.com/davecgh/go-spew` | `v1.1.1` | [LICENSE](go/github.com__davecgh__go-spew@v1.1.1/LICENSE) |
-| `github.com/gofrs/flock` | `v0.13.0` | [LICENSE](go/github.com__gofrs__flock@v0.13.0/LICENSE) |
-| `github.com/pmezard/go-difflib` | `v1.0.0` | [LICENSE](go/github.com__pmezard__go-difflib@v1.0.0/LICENSE) |
-| `github.com/stretchr/testify` | `v1.11.1` | [LICENSE](go/github.com__stretchr__testify@v1.11.1/LICENSE) |
+| `github.com/gofrs/flock` | `v0.13.1` | [LICENSE](go/github.com__gofrs__flock@v0.13.1/LICENSE) |
+| `github.com/stretchr/testify` | `v1.12.1` | [LICENSE](go/github.com__stretchr__testify@v1.12.1/LICENSE), [internal/difflib/LICENSE](go/github.com__stretchr__testify@v1.12.1/internal/difflib/LICENSE), [internal/spew/LICENSE](go/github.com__stretchr__testify@v1.12.1/internal/spew/LICENSE) |
 | `github.com/voocel/agentcore` | `v1.8.3` | [LICENSE](go/github.com__voocel__agentcore@v1.8.3/LICENSE) |
-| `github.com/voocel/litellm` | `v1.8.10` | [LICENSE](go/github.com__voocel__litellm@v1.8.10/LICENSE) |
-| `golang.org/x/image` | `v0.45.0` | [LICENSE](go/golang.org__x__image@v0.45.0/LICENSE), [PATENTS](go/golang.org__x__image@v0.45.0/PATENTS) |
-| `golang.org/x/mod` | `v0.40.0` | [LICENSE](go/golang.org__x__mod@v0.40.0/LICENSE), [PATENTS](go/golang.org__x__mod@v0.40.0/PATENTS) |
-| `golang.org/x/net` | `v0.58.0` | [LICENSE](go/golang.org__x__net@v0.58.0/LICENSE), [PATENTS](go/golang.org__x__net@v0.58.0/PATENTS) |
-| `golang.org/x/sys` | `v0.47.0` | [LICENSE](go/golang.org__x__sys@v0.47.0/LICENSE), [PATENTS](go/golang.org__x__sys@v0.47.0/PATENTS) |
-| `golang.org/x/text` | `v0.41.0` | [LICENSE](go/golang.org__x__text@v0.41.0/LICENSE), [PATENTS](go/golang.org__x__text@v0.41.0/PATENTS) |
-| `gopkg.in/yaml.v3` | `v3.0.1` | [NOTICE](go/gopkg.in__yaml.v3@v3.0.1/NOTICE), [LICENSE](go/gopkg.in__yaml.v3@v3.0.1/LICENSE) |
+| `github.com/voocel/litellm` | `v1.8.11` | [LICENSE](go/github.com__voocel__litellm@v1.8.11/LICENSE) |
+| `go.yaml.in/yaml/v3` | `v3.0.5` | [LICENSE](go/go.yaml.in__yaml__v3@v3.0.5/LICENSE), [NOTICE](go/go.yaml.in__yaml__v3@v3.0.5/NOTICE) |
+| `golang.org/x/image` | `v0.47.0` | [LICENSE](go/golang.org__x__image@v0.47.0/LICENSE), [PATENTS](go/golang.org__x__image@v0.47.0/PATENTS) |
+| `golang.org/x/mod` | `v0.41.0` | [LICENSE](go/golang.org__x__mod@v0.41.0/LICENSE), [PATENTS](go/golang.org__x__mod@v0.41.0/PATENTS) |
+| `golang.org/x/net` | `v0.62.0` | [LICENSE](go/golang.org__x__net@v0.62.0/LICENSE), [PATENTS](go/golang.org__x__net@v0.62.0/PATENTS) |
+| `golang.org/x/sys` | `v0.49.0` | [LICENSE](go/golang.org__x__sys@v0.49.0/LICENSE), [PATENTS](go/golang.org__x__sys@v0.49.0/PATENTS) |
+| `golang.org/x/text` | `v0.43.0` | [LICENSE](go/golang.org__x__text@v0.43.0/LICENSE), [PATENTS](go/golang.org__x__text@v0.43.0/PATENTS) |
+
+Testify includes copies of difflib and spew; their original BSD and ISC license
+files are retained alongside Testify's MIT license. License directories for
+previous dependency versions remain available for historical attribution.
 
 ## Android bindings
 
-The Android binding module pins its own Go tool dependencies in `mobile/bind/go.mod`
-and `mobile/bind/go.sum`. The following additional versions retain their upstream
-BSD license and patent notices. Go tool packages are build-time dependencies.
+The Android binding module pins its own Go dependencies and tools in
+`mobile/bind/go.mod` and `mobile/bind/go.sum`. Modules shared with the root module
+use the notices above; additional module versions and test dependencies follow.
+Go tool packages are build-time dependencies.
 
 | Module | Version | Notices |
 | --- | --- | --- |
-| `golang.org/x/image` | `v0.47.0` | [LICENSE](go/golang.org__x__image@v0.47.0/LICENSE), [PATENTS](go/golang.org__x__image@v0.47.0/PATENTS) |
+| `github.com/google/go-cmp` | `v0.6.0` | [LICENSE](go/github.com__google__go-cmp@v0.6.0/LICENSE) |
 | `golang.org/x/mobile` | `v0.0.0-20261011034528-197770444867` | [LICENSE](go/golang.org__x__mobile@v0.0.0-20261011034528-197770444867/LICENSE), [PATENTS](go/golang.org__x__mobile@v0.0.0-20261011034528-197770444867/PATENTS) |
 | `golang.org/x/mod` | `v0.42.0` | [LICENSE](go/golang.org__x__mod@v0.42.0/LICENSE), [PATENTS](go/golang.org__x__mod@v0.42.0/PATENTS) |
-| `golang.org/x/net` | `v0.61.0` | [LICENSE](go/golang.org__x__net@v0.61.0/LICENSE), [PATENTS](go/golang.org__x__net@v0.61.0/PATENTS) |
 | `golang.org/x/sync` | `v0.24.0` | [LICENSE](go/golang.org__x__sync@v0.24.0/LICENSE), [PATENTS](go/golang.org__x__sync@v0.24.0/PATENTS) |
-| `golang.org/x/sys` | `v0.49.0` | [LICENSE](go/golang.org__x__sys@v0.49.0/LICENSE), [PATENTS](go/golang.org__x__sys@v0.49.0/PATENTS) |
-| `golang.org/x/text` | `v0.43.0` | [LICENSE](go/golang.org__x__text@v0.43.0/LICENSE), [PATENTS](go/golang.org__x__text@v0.43.0/PATENTS) |
 | `golang.org/x/tools` | `v0.52.0` | [LICENSE](go/golang.org__x__tools@v0.52.0/LICENSE), [PATENTS](go/golang.org__x__tools@v0.52.0/PATENTS) |
 | `golang.org/x/tools/go/expect` | `v0.1.1-deprecated` | [LICENSE](go/golang.org__x__tools__go__expect@v0.1.1-deprecated/LICENSE) |
 | `golang.org/x/tools/go/packages/packagestest` | `v0.1.1-deprecated` | [LICENSE](go/golang.org__x__tools__go__packages__packagestest@v0.1.1-deprecated/LICENSE) |
