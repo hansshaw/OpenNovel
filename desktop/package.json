@@ -22,9 +22,9 @@
     "vendor:check": "node scripts/sync-reader-vendor.js --check"
   },
   "devDependencies": {
-    "electron": "45.1.0",
+    "electron": "45.2.3",
     "electron-builder": "26.18.0",
-    "pdfjs-dist": "6.4.299"
+    "pdfjs-dist": "6.5.438"
   },
   "build": {
     "appId": "com.ainovel.desktop",
