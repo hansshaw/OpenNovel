@@ -80,12 +80,6 @@ func (t *SaveFoundationTool) Execute(_ context.Context, args json.RawMessage) (j
 
 	result := map[string]any{"saved": true, "type": a.Type, "scale": a.Scale}
 
-	if a.Scale != "" {
-		if err := t.store.RunMeta.SetPlanningTier(domain.PlanningTier(a.Scale)); err != nil {
-			return nil, fmt.Errorf("save planning tier: %w: %w", errs.ErrStoreWrite, err)
-		}
-	}
-
 	// 卷末三选一（续卷/收官/完结）是全书最重的语义判断，理由必须成为审计事实
 	// （decisions.jsonl，与 plan_start/intervention 同一条流水），否则收官过早/
 	// 续卷失当只能翻会话日志排障。事实快照取判定时刻（变更落盘前）的进度。
@@ -355,6 +349,12 @@ func (t *SaveFoundationTool) Execute(_ context.Context, args json.RawMessage) (j
 		return nil, fmt.Errorf("unknown type %q, expected premise/outline/layered_outline/characters/world_rules/append_volume/update_compass/complete_book: %w", a.Type, errs.ErrToolArgs)
 	}
 
+	// A rejected outline must not change which planning profile will retry it.
+	if a.Scale != "" {
+		if err := t.store.RunMeta.SetPlanningTier(domain.PlanningTier(a.Scale)); err != nil {
+			return nil, fmt.Errorf("save planning tier: %w: %w", errs.ErrStoreWrite, err)
+		}
+	}
 	if _, err := t.store.Checkpoints.AppendArtifact(domain.GlobalScope(), a.Type, foundationArtifact(a.Type)); err != nil {
 		return nil, fmt.Errorf("checkpoint foundation %s: %w: %w", a.Type, errs.ErrStoreWrite, err)
 	}

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hansshaw/OpenNovel/internal/agents"
 	"github.com/hansshaw/OpenNovel/internal/bootstrap"
 	"github.com/hansshaw/OpenNovel/internal/domain"
 	"github.com/hansshaw/OpenNovel/internal/tools"
@@ -142,16 +141,10 @@ func (h *Host) RewriteWorkbenchChapters(ctx context.Context, chapters []int, ins
 	}); err != nil {
 		return nil, err
 	}
-	contextTool := tools.NewContextTool(h.store, h.bundle.References, h.cfg.Style, h.styleStats, h.cfg.StyleReferenceProfiles)
+	contextTool := tools.NewContextTool(h.store, h.bundle.References, h.cfg.Style, h.styleStats, h.cfg.StyleReferenceProfiles).WithRewriteReferences(h.bundle.CandidateRewriteReferences())
 	model := h.models.ForRoleWithFailover("writer", nil)
 	provider, name, _ := h.models.CurrentSelection("writer")
 	maxTokens, _ := h.cfg.ResolveMaxOutputTokens(provider, name)
-	options := []agentcore.CallOption{agentcore.WithMaxTokens(maxTokens)}
-	if level, err := agents.ParseThinkingLevel(h.cfg.ResolveReasoningEffort("writer")); err == nil {
-		if resolved, ok := agents.ResolveThinkingForModel(model, level); ok {
-			options = append(options, agentcore.WithThinking(resolved))
-		}
-	}
 	var versions []domain.ChapterVersion
 	baseHashes := map[int]string{}
 	for _, chapter := range chapters {
@@ -186,7 +179,7 @@ func (h *Host) RewriteWorkbenchChapters(ctx context.Context, chapters []int, ins
 		if err != nil {
 			return versions, err
 		}
-		system := "你是小说章节重写作者。仅按用户明确指令重写本章，保留未要求修改的情节、人物、设定与前后衔接。遵守 novel_context 中最新已保存的章节规划、用户原则、风格引用及事实；不要复制参考语料。本次只生成候选版本，不得调用工具或改变其他章节。只输出完整的新章节正文，保留本章标题；不要解释、评语、JSON 或代码围栏。"
+		system := "你是小说章节重写作者。以 original_content 为底稿，按 instruction 指定的范围与篇幅修改。用户明确要求的字数和局部修改优先于内置写作建议。只改指定片段时，其余正文原样保留。保持本书用户原则、已确认设定、人物口吻和章节规划。仿写参考只借鉴表达，不照搬句子或情节。用原文已铺垫的细节兑现线索，让人物按当时已知的信息行动。若有 working_memory.following_chapter_opening，让章末接得上下一章。写完核对改动是否完成、前后动作与人物关系是否连贯。仅输出含原章节标题的完整候选正文。"
 		if h.bundle.Voice != "" {
 			system += "\n\n写作标准：\n" + h.bundle.Voice
 		}
@@ -197,7 +190,7 @@ func (h *Host) RewriteWorkbenchChapters(ctx context.Context, chapters []int, ins
 			system += "\n\n项目作者指令：\n" + directive
 		}
 		h.emitEvent(Event{Time: time.Now(), Category: "SYSTEM", Agent: "writer", Summary: fmt.Sprintf("正在生成第 %d 章重写候选（原稿保留）", chapter)})
-		message, err := streamChapterCandidate(bootstrap.WithModelRequestAgent(ctx, "writer"), model, []agentcore.Message{agentcore.SystemMsg(system), agentcore.UserMsg(string(payload))}, h.emitDelta, options...)
+		message, err := streamChapterCandidate(bootstrap.WithModelRequestAgent(ctx, "writer"), model, []agentcore.Message{agentcore.SystemMsg(system), agentcore.UserMsg(string(payload))}, h.emitDelta, agentcore.WithMaxTokens(maxTokens))
 		if err != nil {
 			return versions, fmt.Errorf("第 %d 章重写失败（原稿保留）: %w", chapter, err)
 		}

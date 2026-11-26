@@ -214,3 +214,46 @@ func TestReaderSearchUsesUnicodeCodepointRangesAndContentIdentity(t *testing.T) 
 		t.Fatal("a stale search range cannot be identified after editing")
 	}
 }
+
+func TestReaderSearchContinuesPastOneHundredAndDetectsEditedCursor(t *testing.T) {
+	s := newTestServer(t, false)
+	book := readerImportedBook(t, importReaderFixture(t, s, "航线.txt",
+		"第一章 准备\n"+strings.Repeat("🌗İ河 ", 100)+"\n第二章 启航\n𠀀İ河İ河。", nil))
+	type page struct {
+		Matches    []readerSearchMatch
+		Truncated  bool
+		NextCursor string
+	}
+	search := func(extra string) page {
+		t.Helper()
+		w := readerGET(t, s, "/api/reader/search?q=i"+extra, book.Directory)
+		var p page
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &p) != nil {
+			t.Fatalf("reader search: %d %s", w.Code, w.Body.String())
+		}
+		return p
+	}
+	first := search("")
+	if len(first.Matches) != 100 || !first.Truncated || first.NextCursor == "" {
+		t.Fatalf("first page: %d %q", len(first.Matches), first.NextCursor)
+	}
+	next := search("&cursor=" + first.NextCursor)
+	if len(next.Matches) != 2 || next.Matches[0].Chapter != 2 || next.Matches[0].Start != 1 || next.Matches[1].Start != 3 || next.Truncated {
+		t.Fatalf("continuation: %+v", next)
+	}
+	scoped := search("&chapter=1")
+	if len(scoped.Matches) != 100 || scoped.Truncated || scoped.NextCursor != "" {
+		t.Fatal("exactly 100 matches must end the scoped search")
+	}
+	if err := os.WriteFile(filepath.Join(book.Directory, "chapters", "02.md"), []byte("新稿İ河"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if w := readerGET(t, s, "/api/reader/search?q=i&cursor="+first.NextCursor, book.Directory); w.Code != 409 {
+		t.Fatalf("stale cursor: %d", w.Code)
+	}
+	for _, raw := range []string{"1", "2.x.bad", "0.1." + strings.Repeat("0", 64)} {
+		if w := readerGET(t, s, "/api/reader/search?q=i&cursor="+raw, book.Directory); w.Code != 400 {
+			t.Fatalf("invalid cursor accepted: %q", raw)
+		}
+	}
+}

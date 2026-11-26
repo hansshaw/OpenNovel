@@ -75,6 +75,7 @@ async function runChapterScrollChecks({ window, options, api, step, waitForUI })
       for (const folder of ["chapters", "meta"]) fs.mkdirSync(path.join(directory, folder), { recursive: true });
       const longBody = Array.from({ length: 320 }, (_, index) => `第${index + 1}段：林舟走过月球书库，循着旧信上的文字寻找故事里的答案。窗外的星光照亮长廊，他翻开书页，把未曾说出口的思念写进新的篇章。`).join("\n\n");
       const outline = Array.from({ length: 48 }, (_, index) => ({ chapter: index + 1, title: `滚动验收第${index + 1}章`, volume_id: Math.floor(index / 12) + 1, volume_title: `测试卷${Math.floor(index / 12) + 1}`, core_event: "目录和正文独立滚动", hook: "长章结尾", scenes: ["书库", "长廊"] }));
+      outline[1].scenes.push("灰羽信使冒雨敲门");
       fs.writeFileSync(path.join(directory, "outline.json"), JSON.stringify(outline));
       fs.writeFileSync(path.join(directory, "chapters/01.md"), longBody);
       fs.writeFileSync(path.join(directory, "chapters/02.md"), "第二章：这段正文用于检查切章后的局部滚动与草稿保留。");
@@ -87,6 +88,12 @@ async function runChapterScrollChecks({ window, options, api, step, waitForUI })
       window.webContents.setZoomFactor(1);
       window.setBounds({ width: 1600, height: 1000 });
       await settleViewport();
+      await run(`document.getElementById('chapter-search').value = '灰羽信使'; document.getElementById('chapter-search').dispatchEvent(new Event('input'))`);
+      assert.equal(await run("document.querySelectorAll('#chapter-list .chapter-item').length"), 1);
+      assert.match(await run("document.querySelector('.chapter-match-snippet').textContent"), /场景.*灰羽信使/);
+      await run("document.getElementById('select-rewrite-chapters').click()");
+      assert.match(await run("document.getElementById('rewrite-selected-count').textContent"), /已勾选 1 章：2$/);
+      await run(`document.getElementById('chapter-search').value = ''; document.getElementById('chapter-search').dispatchEvent(new Event('input')); document.getElementById('clear-rewrite-chapters').click()`);
       await run(`document.querySelector('[data-view=chapters]').click(); document.querySelector('#chapter-list .chapter-item').click()`);
       await waitForUI('document.getElementById("reader-content").textContent.includes("第320段") && !document.getElementById("edit-chapter-content").disabled', "Long chapter did not load in reader and editor");
       // The editor and version history load independently. The version reader

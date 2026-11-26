@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -190,5 +192,87 @@ func TestCoCreateStreamCancellationDoesNotPublishDraftOrRetry(t *testing.T) {
 	}
 	if model.streamCalls != 1 || model.generateCalls != 0 {
 		t.Fatalf("cancellation must not retry: stream=%d, generate=%d", model.streamCalls, model.generateCalls)
+	}
+}
+
+func TestDeepSeekProbeAndCoCreationUseTheirOwnReasoningSettings(t *testing.T) {
+	calls := make(chan string, 32)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model       string
+			Stream      bool
+			Thinking    struct{ Type string }
+			Temperature *float64
+			Messages    []struct{ Content string }
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		if body.Thinking.Type != "disabled" || body.Temperature == nil || *body.Temperature != 0 {
+			t.Errorf("unexpected wire reasoning/sampling for %s: %+v, %v", body.Model, body.Thinking, body.Temperature)
+		}
+		if body.Stream {
+			calls <- body.Model + ":stream"
+			w.Header().Set("Content-Type", "text/event-stream")
+			response, _ := json.Marshal(coCreateTestResponse("可以开始", "一部海港小说", true))
+			fmt.Fprintf(w, "data: {\"model\":%q,\"choices\":[{\"index\":0,\"delta\":{\"content\":%s},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", body.Model, response)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		result := "OK"
+		if len(body.Messages) > 0 && body.Messages[0].Content == coCreateCompactPrompt {
+			calls <- body.Model + ":summary"
+			result = "<summary>保留海港和信件。</summary>"
+		} else {
+			calls <- body.Model + ":probe"
+		}
+		fmt.Fprintf(w, `{"model":%q,"choices":[{"index":0,"message":{"role":"assistant","content":%q},"finish_reason":"stop"}]}`, body.Model, result)
+	}))
+	defer upstream.Close()
+	const general, selected = "deepseek-v4-flash", "deepseek-v4-pro"
+	models := []bootstrap.ModelConfig{{Name: general, ContextWindow: 5000, MaxOutputTokens: 512}, {Name: selected, ContextWindow: 5000, MaxOutputTokens: 512}}
+	cfg := bootstrap.Config{Provider: "local", ModelName: general, ReasoningEffort: "off",
+		Providers: map[string]bootstrap.ProviderConfig{"local": {Type: "deepseek", BaseURL: upstream.URL, APIKey: "stub", Models: models, ExtraBody: map[string]any{"temperature": 0}}},
+		Roles:     map[string]bootstrap.RoleConfig{"thinking": {Provider: "local", Model: selected, ReasoningEffort: "off"}}}
+	set, err := bootstrap.NewModelSet(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &Host{cfg: cfg, models: set, store: store.NewStore(t.TempDir())}
+	draft := ModelConfigurationDraft{Provider: "local", Type: "deepseek", BaseURL: upstream.URL, Models: models}
+	if err := h.TestModelConnection(t.Context(), draft, general); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-calls; got != general+":probe" {
+		t.Fatalf("default probe called %s", got)
+	}
+
+	// A role-specific off must neither change the connection probe nor be
+	// lost when that role's long conversation has to be summarized.
+	h.cfg.ReasoningEffort = ""
+	if err := h.TestModelConnection(t.Context(), draft, general); err == nil || !strings.Contains(err.Error(), "thinking mode") || len(calls) != 0 {
+		t.Fatalf("probe should retain the provider's default restriction, got %v", err)
+	}
+	history := longCoCreateHistory(20)
+	for i := range history {
+		if history[i].Role == "assistant" {
+			history[i].Content = coCreateTestResponse("是否继续", "保留海港和信件。", false)
+		}
+	}
+	reply, err := h.CoCreateStream(t.Context(), history, nil)
+	if err != nil || !reply.Ready || reply.Checkpoint == nil {
+		t.Fatalf("co-creation: %+v, %v", reply, err)
+	}
+	if len(calls) < 2 {
+		t.Fatal("expected both compaction and streaming calls")
+	}
+	for len(calls) > 1 {
+		if got := <-calls; got != selected+":summary" {
+			t.Fatalf("compaction called %s", got)
+		}
+	}
+	if got := <-calls; got != selected+":stream" {
+		t.Fatalf("co-creation called %s", got)
 	}
 }

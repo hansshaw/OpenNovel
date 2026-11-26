@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hansshaw/OpenNovel/internal/domain"
+	"github.com/hansshaw/OpenNovel/internal/utils"
 )
 
 // DraftStore 管理章节构思、草稿和终稿。
@@ -122,7 +123,24 @@ func (s *DraftStore) LoadChapterRange(from, to, maxRunes int) (map[int]string, e
 	return result, nil
 }
 
-var dialogueRe = regexp.MustCompile(`"[^"]*"`)
+var dialogueRe = regexp.MustCompile(`“[^”\n]+”|「[^」\n]+」|『[^』\n]+』|"[^"\n]+"`)
+
+// 只接受引语旁能辨认的说话人；被别人喊到的名字不能当成该角色的语料。
+func dialogueSpeakerTags(name string, aliases []string) (before, after *regexp.Regexp) {
+	var names []string
+	for _, n := range append([]string{name}, aliases...) {
+		if n = strings.TrimSpace(n); n != "" {
+			names = append(names, regexp.QuoteMeta(n))
+		}
+	}
+	if len(names) == 0 {
+		return nil, nil
+	}
+	speaker := "(?:" + strings.Join(names, "|") + ")"
+	verb := `(?:(?:低声|轻声|沉声|小声|大声|冷冷|缓缓|笑着|忍不住|压低声音)(?:地)?\s*)?(?:说道|问道|答道|喊道|笑道|叹道|回道|叫道|嘀咕|提醒|回答|反问|开口|说|问|道|喊|答|(?i:said|asked|replied|whispered|shouted))`
+	return regexp.MustCompile(speaker + `\s*(?:` + verb + `[，,:：]?|[:：])\s*$`),
+		regexp.MustCompile(`^\s*[，,、]?\s*` + speaker + `\s*` + verb + `(?:[。.!！?？]|$)`)
+}
 
 // ExtractDialogue 从已提交章节中提取指定角色的对话片段。
 // maxCompletedChapter 由调用方传入，避免跨域依赖。
@@ -130,7 +148,10 @@ func (s *DraftStore) ExtractDialogue(characterName string, aliases []string, max
 	if maxSamples <= 0 {
 		maxSamples = 5
 	}
-	names := append([]string{characterName}, aliases...)
+	before, after := dialogueSpeakerTags(characterName, aliases)
+	if before == nil {
+		return nil, nil
+	}
 
 	var samples []string
 	var readErrs []error
@@ -148,23 +169,21 @@ func (s *DraftStore) ExtractDialogue(characterName string, aliases []string, max
 			if len(samples) >= maxSamples {
 				break
 			}
-			found := false
-			for _, name := range names {
-				if strings.Contains(para, name) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				continue
-			}
-			matches := dialogueRe.FindAllString(para, -1)
-			for _, m := range matches {
+			quotes := dialogueRe.FindAllStringIndex(para, -1)
+			for i, span := range quotes {
 				if len(samples) >= maxSamples {
 					break
 				}
-				if utf8.RuneCountInString(m) > 5 {
-					samples = append(samples, characterName+": "+m)
+				left, right := 0, len(para)
+				if i > 0 {
+					left = quotes[i-1][1]
+				}
+				if i+1 < len(quotes) {
+					right = quotes[i+1][0]
+				}
+				quote := para[span[0]:span[1]]
+				if utf8.RuneCountInString(quote) > 5 && (before.MatchString(para[left:span[0]]) || after.MatchString(para[span[1]:right])) {
+					samples = append(samples, characterName+": "+utils.TruncateRunes(quote, 200))
 				}
 			}
 		}

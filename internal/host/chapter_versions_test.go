@@ -2,7 +2,11 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -121,6 +125,85 @@ func TestBatchChapterRewriteProducesCandidatesWithoutReplacingConfirmedOriginals
 	meta, _ := h.store.RunMeta.Load()
 	if len(meta.Workbench.Feedback) != 2 || meta.Workbench.AcceptedChapter != 2 {
 		t.Fatal(meta.Workbench)
+	}
+}
+
+func TestCandidateRewriteKeepsStoryAndUserReferencesWithoutFullChapterTutorials(t *testing.T) {
+	var request struct {
+		Original    string         `json:"original_content"`
+		Instruction string         `json:"instruction"`
+		Context     map[string]any `json:"novel_context"`
+	}
+	var system string
+	model := &chapterCandidateModel{fn: func(messages []agentcore.Message) ([]agentcore.StreamEvent, error) {
+		system = messages[0].TextContent()
+		if err := json.Unmarshal([]byte(messages[1].TextContent()), &request); err != nil {
+			t.Fatal(err)
+		}
+		return []agentcore.StreamEvent{candidateDone("完成的候选正文")}, nil
+	}}
+	h := chapterVersionHost(t, model)
+	dir := t.TempDir()
+	for name, value := range map[string]string{
+		"voice.md": "本书作者要求保留方言", "anti-ai-tone.md": "本书禁用的修辞",
+		"styles/fantasy.md": "本书幻想文风", "genres/fantasy/style-references.md": "本书替换的题材参考",
+	} {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.bundle = assets.Load("fantasy", assets.LoadOptions{BookStyleDir: dir})
+	h.bundle.References.ChapterGuide += "\n自定义章法补充"
+	h.cfg.Style = "fantasy"
+	h.cfg.RoleDirectives = map[string]string{"writer": "项目作者指令"}
+	const instruction = "仅改第一句，用十个字写出停顿"
+	if _, err := h.RewriteWorkbenchChapters(t.Context(), []int{1}, instruction, false); err != nil {
+		t.Fatal(err)
+	}
+	if request.Original != "原稿1" || request.Instruction != instruction {
+		t.Fatal("lost manuscript or user's exact edit instruction")
+	}
+	for _, phrase := range []string{"字数和局部修改优先", "其余正文原样保留", "本书作者要求保留方言", "本书幻想文风", "项目作者指令"} {
+		if !strings.Contains(system, phrase) {
+			t.Errorf("missing %q in system prompt", phrase)
+		}
+	}
+	normalTool := tools.NewContextTool(h.store, h.bundle.References, h.cfg.Style, h.styleStats, h.cfg.StyleReferenceProfiles)
+	raw, err := normalTool.Execute(t.Context(), json.RawMessage(`{"chapter":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var normal map[string]any
+	if err := json.Unmarshal(raw, &normal); err != nil {
+		t.Fatal(err)
+	}
+	candidatePack := request.Context["reference_pack"].(map[string]any)
+	normalPack := normal["reference_pack"].(map[string]any)
+	selected := candidatePack["references"].(map[string]any)
+	full := normalPack["references"].(map[string]any)
+	for _, name := range []string{"quality_checklist", "hook_techniques", "dialogue_writing", "chapter_template", "content_expansion", "consistency"} {
+		if _, ok := selected[name]; ok || full[name] == nil {
+			t.Errorf("wrong rewrite or normal selection for %q", name)
+		}
+	}
+	for _, name := range []string{"anti_ai_tone", "style_reference", "chapter_guide"} {
+		if selected[name] == nil || selected[name] != full[name] {
+			t.Errorf("custom %s changed or missing", name)
+		}
+	}
+	if !strings.Contains(selected["anti_ai_tone"].(string), "本书禁用的修辞") || selected["style_reference"] != "本书替换的题材参考" {
+		t.Fatal("lost book-level overrides")
+	}
+	delete(normalPack, "references")
+	delete(candidatePack, "references")
+	delete(normal, "_loading_summary")
+	delete(request.Context, "_loading_summary")
+	if !reflect.DeepEqual(normal, request.Context) {
+		t.Fatal("rewrite selection changed story facts, user rules or other chapter memory")
 	}
 }
 

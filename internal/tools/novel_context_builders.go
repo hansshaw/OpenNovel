@@ -6,9 +6,13 @@ package tools
 import (
 	"fmt"
 	"slices"
+	"sort"
+	"strings"
 
 	"github.com/hansshaw/OpenNovel/internal/domain"
+	"github.com/hansshaw/OpenNovel/internal/revision"
 	"github.com/hansshaw/OpenNovel/internal/rules"
+	"github.com/hansshaw/OpenNovel/internal/utils"
 )
 
 type contextBuildState struct {
@@ -19,6 +23,7 @@ type contextBuildState struct {
 	outline         []domain.OutlineEntry
 	currentEntry    *domain.OutlineEntry
 	chapterPlan     *domain.ChapterPlan
+	focusText       string
 	storyThreads    []domain.RecallItem
 	foreshadow      []domain.ForeshadowEntry
 	relationships   []domain.RelationshipEntry
@@ -267,10 +272,6 @@ func (t *ContextTool) prepareChapterContext(chapter int, envelope *chapterContex
 	reads.require("run_meta", err)
 	state.progress = progress
 	state.runMeta = runMeta
-	if progress != nil && len(progress.CompletedChapters) > 0 {
-		state.cast, err = t.store.BuildCast(progress.CompletedChapters)
-		reads.require("supporting_cast", err)
-	}
 
 	if runMeta != nil && runMeta.PlanningTier != "" {
 		envelope.Episodic["planning_tier"] = runMeta.PlanningTier
@@ -288,6 +289,11 @@ func (t *ContextTool) prepareChapterContext(chapter int, envelope *chapterContex
 	currentEntry := findOutlineEntry(outline, chapter)
 	if currentEntry != nil {
 		envelope.Working["current_chapter_outline"] = currentEntry
+		if len(currentEntry.Payoffs) > 0 {
+			if prior := priorPayoffSetups(outline, chapter); len(prior) > 0 {
+				envelope.Working["payoff_setup_chapters"] = prior
+			}
+		}
 	}
 	state.currentEntry = currentEntry
 
@@ -307,6 +313,7 @@ func (t *ContextTool) prepareChapterContext(chapter int, envelope *chapterContex
 		reads.require("chapter_plan", chapterPlanErr)
 	}
 	state.chapterPlan = chapterPlan
+	state.focusText = strings.Join(recallFocusTerms(state.currentEntry, state.chapterPlan), "\n")
 
 	// 是否正在重写本章：决定 novel_context 是否补"重写专用"事实。
 	isRewrite := progress != nil && slices.Contains(progress.PendingRewrites, chapter)
@@ -335,15 +342,7 @@ func (t *ContextTool) prepareChapterContext(chapter int, envelope *chapterContex
 					"scope":          review.Scope,
 					"summary":        review.Summary,
 				}
-				var issues []domain.ConsistencyIssue
-				for _, issue := range review.Issues {
-					// 新评审按问题到章节的映射精准下发；旧评审没有映射时保留
-					// 全部问题，避免历史返工理由在升级后消失。
-					if len(issue.Chapters) == 0 || (issue.RequiresChange && slices.Contains(issue.Chapters, chapter)) {
-						issues = append(issues, issue)
-					}
-				}
-				if len(issues) > 0 {
+				if issues := review.IssuesForChapter(chapter); len(issues) > 0 {
 					item["issues"] = issues
 				}
 				if review.Scope == "chapter" && len(review.ContractMisses) > 0 {
@@ -370,16 +369,29 @@ func (t *ContextTool) prepareChapterContext(chapter int, envelope *chapterContex
 		envelope.Working["rewrite_brief"] = brief
 	}
 
-	foreshadow, foreshadowErr := t.store.World.LoadActiveForeshadow()
-	reads.require("foreshadow_ledger", foreshadowErr)
-	state.foreshadow = foreshadow
-
-	relationships, relErr := t.store.World.LoadRelationships()
-	reads.require("relationship_state", relErr)
-	if len(relationships) > 0 {
-		envelope.Episodic["relationship_state"] = relationships
+	// 紧邻终稿是重写后必须接得上的边界，和本章开始前的人物知识分开放置。
+	if progress != nil && slices.Contains(progress.CompletedChapters, chapter) && slices.Contains(progress.CompletedChapters, chapter+1) {
+		record, err := t.store.ChapterRecords.Load(chapter + 1)
+		reads.warn("following_chapter_opening", err)
+		if record != nil && record.Content != "" {
+			envelope.Working["following_chapter_opening"] = map[string]any{
+				"chapter": chapter + 1,
+				"excerpt": utils.TruncateRunes(record.Content, 480),
+			}
+		}
 	}
-	state.relationships = relationships
+
+	opening, err := revision.LoadChapterOpening(t.store, progress, chapter)
+	reads.require("chapter_opening", err)
+	if err == nil && progress != nil && len(progress.CompletedChapters) > 0 {
+		state.cast, err = opening.SupportingCast(t.store, progress.CompletedChapters)
+		reads.require("supporting_cast", err)
+	}
+	state.foreshadow = opening.Foreshadow
+	state.relationships = opening.Relationships
+	if len(opening.Relationships) > 0 {
+		envelope.Episodic["relationship_state"] = opening.Relationships
+	}
 
 	allStateChanges, scErr := t.store.World.LoadStateChanges()
 	reads.require("recent_state_changes", scErr)
@@ -413,10 +425,13 @@ func (t *ContextTool) buildChapterContext(result map[string]any, state contextBu
 	result["memory_policy"] = domain.NewChapterMemoryPolicy(state.progress, state.profile, state.currentEntry != nil)
 
 	if state.profile.Layered {
-		t.loadLayeredCharacters(envelope.Episodic, state.chapter, reads)
-	} else {
-		t.loadFilteredCharacters(envelope.Episodic, state.chapter, reads)
+		snapshots, err := t.store.Characters.LoadSnapshotsBeforeChapter(state.chapter)
+		reads.require("character_snapshots", err)
+		if len(snapshots) > 0 {
+			envelope.Episodic["character_snapshots"] = snapshots
+		}
 	}
+	t.loadFilteredCharacters(envelope.Episodic, state.focusText, reads)
 
 	t.buildChapterEpisodicMemory(&envelope, state, reads)
 	t.buildChapterWorkingMemory(&envelope, state, reads)
@@ -515,11 +530,11 @@ func (t *ContextTool) buildChapterWorkingMemory(envelope *chapterContextEnvelope
 		checkpoint := map[string]any{
 			"in_progress_chapter": state.progress.InProgressChapter,
 		}
-		if len(state.progress.StrandHistory) > 0 {
-			checkpoint["strand_history"] = state.progress.StrandHistory
+		if history := state.progress.StrandHistory[:min(state.chapter-1, len(state.progress.StrandHistory))]; len(history) > 0 {
+			checkpoint["strand_history"] = history
 		}
-		if len(state.progress.HookHistory) > 0 {
-			checkpoint["hook_history"] = state.progress.HookHistory
+		if history := state.progress.HookHistory[:min(state.chapter-1, len(state.progress.HookHistory))]; len(history) > 0 {
+			checkpoint["hook_history"] = history
 		}
 		envelope.Working["checkpoint"] = checkpoint
 	}
@@ -587,9 +602,12 @@ func (t *ContextTool) buildChapterEpisodicMemory(envelope *chapterContextEnvelop
 		envelope.Episodic["foreshadow_ledger"] = state.foreshadow
 	}
 
-	// 召回最近活跃的次要角色，让 Writer 在引入旧角色时能保持口吻/定位一致。
-	// 不召回所有条目（长篇会膨胀），只给最近活跃的前 N 个，按 LastSeenChapter 倒序
-	if recentCast := domain.RecentCast(state.cast, 15); len(recentCast) > 0 {
+	// 保留上限，优先给本章点名回归的老角色留位，其余位置仍按最近出场填充。
+	cast := domain.RecentCast(state.cast, len(state.cast))
+	sort.SliceStable(cast, func(i, j int) bool {
+		return strings.Contains(state.focusText, cast[i].Name) && !strings.Contains(state.focusText, cast[j].Name)
+	})
+	if recentCast := cast[:min(len(cast), 15)]; len(recentCast) > 0 {
 		simplified := make([]map[string]any, 0, len(recentCast))
 		for _, e := range recentCast {
 			item := map[string]any{
@@ -619,21 +637,21 @@ func (t *ContextTool) buildChapterEpisodicMemory(envelope *chapterContextEnvelop
 		}
 	}
 
-	if state.profile.Layered && state.progress != nil {
+	if state.profile.Layered && state.currentEntry != nil {
 		pos := map[string]any{
-			"volume": state.progress.CurrentVolume,
-			"arc":    state.progress.CurrentArc,
+			"volume": state.currentEntry.VolumeID,
+			"arc":    state.currentEntry.ArcID,
 		}
 		if volumes, err := t.store.Outline.LoadLayeredOutline(); err == nil {
 			globalCh := 1
 			for _, v := range volumes {
-				if v.Index == state.progress.CurrentVolume {
+				if v.Index == state.currentEntry.VolumeID {
 					pos["volume_title"] = v.Title
 					pos["volume_theme"] = v.Theme
 				}
 				for _, arc := range v.Arcs {
 					chapters := arc.DetailedChapters()
-					if v.Index == state.progress.CurrentVolume && arc.Index == state.progress.CurrentArc {
+					if v.Index == state.currentEntry.VolumeID && arc.Index == state.currentEntry.ArcID {
 						pos["arc_title"] = arc.Title
 						pos["arc_goal"] = arc.Goal
 						if n := len(chapters); n > 0 {
@@ -663,7 +681,7 @@ func (t *ContextTool) buildChapterReferencePack(envelope *chapterContextEnvelope
 	} else {
 		var maxCompleted int
 		if state.progress != nil {
-			maxCompleted = maxCompletedChapter(state.progress.CompletedChapters)
+			maxCompleted = min(state.chapter-1, maxCompletedChapter(state.progress.CompletedChapters))
 		}
 		anchors, err := t.store.Drafts.ExtractStyleAnchors(3, maxCompleted)
 		reads.warn("style_anchors", err)
@@ -675,8 +693,11 @@ func (t *ContextTool) buildChapterReferencePack(envelope *chapterContextEnvelope
 			var voiceSamples []map[string]any
 			chars, err := t.store.Characters.Load()
 			reads.warn("voice_samples.characters", err)
+			sort.SliceStable(chars, func(i, j int) bool {
+				return matchCharacter(state.focusText, chars[i]) && !matchCharacter(state.focusText, chars[j])
+			})
 			for _, c := range chars {
-				if c.Tier == "secondary" || c.Tier == "decorative" {
+				if (c.Tier == "secondary" || c.Tier == "decorative") && !matchCharacter(state.focusText, c) {
 					continue
 				}
 				samples, err := t.store.Drafts.ExtractDialogue(c.Name, c.Aliases, 3, maxCompleted)
@@ -743,6 +764,7 @@ func (t *ContextTool) buildArchitectPlanning(envelope *architectContextEnvelope,
 			detailArc,
 		)
 		envelope.Planning["layered_outline"] = outline
+		addOutlineThreadReview(envelope.Planning, domain.FlattenOutline(layered))
 		if detailIncluded {
 			envelope.Planning["outline_detail"] = map[string]int{"volume": detailVolume, "arc": detailArc}
 		}
@@ -770,6 +792,7 @@ func (t *ContextTool) buildArchitectPlanning(envelope *architectContextEnvelope,
 		}
 		if outline, err := t.store.Outline.LoadOutlineView(); err == nil && len(outline) > 0 {
 			envelope.Planning["outline"] = outline
+			addOutlineThreadReview(envelope.Planning, outline)
 		} else {
 			reads.require("outline", err)
 		}

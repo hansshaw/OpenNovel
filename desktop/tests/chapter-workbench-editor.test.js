@@ -21,6 +21,8 @@ class Element {
   setAttribute(name, value) { this.attributes[name] = value; }
   focus(options) { this.focusOptions = options; this.focused = true; }
   scrollIntoView(options) { this.scrollOptions = options; }
+  showModal() { this.open = true; }
+  close() { this.open = false; this.listeners.get("close")?.(); }
 }
 
 const completed = (number) => ({ number, source: "final", status: "completed", hasContent: true });
@@ -39,16 +41,19 @@ function harness({ androidStorage = null } = {}) {
     ainovelAndroid: {}, confirm: () => true, addEventListener: (name, callback) => lifecycle.set(name, callback),
     localStorage: { getItem: (key) => androidStorage.get(key) ?? null, setItem: (key, value) => androidStorage.set(key, value), removeItem: (key) => androidStorage.delete(key) },
   });
-  vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, "../../internal/entry/desktopui/static/chapter-workbench.js"), "utf8"), browser);
+  for (const name of ["chapter-comparison.js", "chapter-workbench.js"]) {
+    vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, "../../internal/entry/desktopui/static", name), "utf8"), browser);
+  }
   let context = { directory: "/books/one", chapter: 1, epoch: 0, approved: true };
   let chapters = [completed(1), completed(2), { number: 3, source: "planned" }];
+  let visible = null;
   let busy = false;
   let respond = async (url, options) => options?.method ? {} : url.includes("/versions") ? versions() : edit();
   const el = (tag, name = "", text = "") => new Element(tag, name, text);
   const button = (text, name, callback) => { const node = el("button", name, text); node.addEventListener("click", callback); return node; };
   const panel = browser.window.NovelChapterWorkbench.create({
     api: async (url, options) => { calls.push({ url, options }); return respond(url, options); },
-    el, button, getContext: () => context, getChapters: () => chapters,
+    el, button, getContext: () => context, getChapters: () => chapters, getFilteredChapters: () => visible || chapters,
     canRewrite: (chapter) => Boolean(chapter?.hasContent && chapter.source === "final"),
     isBusy: () => busy, setBusy: (_name, value) => { busy = value; },
     refresh: async () => {}, repaint: () => panel.sync(), syncRevisions: () => { notices.push("sync"); }, toast: (message) => notices.push(message),
@@ -60,6 +65,7 @@ function harness({ androidStorage = null } = {}) {
     respond: (callback) => { respond = callback; },
     context: (value) => { context = { ...context, ...value }; },
     chapters: (value) => { chapters = value; },
+    visible: (value) => { visible = value; },
     busy: (value) => { busy = value; },
     input: async (id, value) => { $(id).value = value; await $(id).listeners.get("input")(); },
     choose: async (chapter, checked) => { const row = panel.chapterRow(chapter, new Element("button")); const checkbox = row.children[0].children[0]; checkbox.checked = checked; await checkbox.listeners.get("change")(); return checkbox; },
@@ -81,6 +87,22 @@ test("Android restores unsaved chapter text and plan after process restart witho
   assert.equal(reopened.calls.some((call) => call.options?.method), false);
   assert.equal(reopened.$("save-chapter-content").disabled, false);
   assert.equal(reopened.$("save-chapter-plan").disabled, false);
+});
+
+test("old phone draft keeps the current thread markers and a manual change submits one name per line", async () => {
+  const androidStorage = new Map(), first = harness({ androidStorage });
+  first.panel.sync(); await first.flush(); await first.input("edit-chapter-content", "原手机草稿"); first.flushBackups();
+  const [key, encoded] = [...androidStorage.entries()][0], legacy = JSON.parse(encoded);
+  delete legacy.value.setups; delete legacy.value.payoffs; androidStorage.set(key, JSON.stringify(legacy));
+  const h = harness({ androidStorage });
+  h.respond(async url => url.includes("/edit") ? edit(1, { setups: ["旧车票"] }) : versions());
+  h.panel.sync(); await h.flush();
+  assert.equal(h.$("edit-chapter-setups").value, "旧车票");
+  assert.equal(h.$("save-chapter-plan").disabled, true);
+  await h.input("edit-chapter-payoffs", "  风铃  \n\n灯号");
+  await h.panel.saveEdits(true);
+  const saved = h.calls.find(call => call.options?.body?.savePlan).options.body;
+  assert.deepEqual([...saved.payoffs], ["风铃", "灯号"]); assert.deepEqual([...saved.setups], ["旧车票"]);
 });
 
 test("changed backend revision keeps Android recovery explicit and survives editing the newer manuscript", async () => {
@@ -451,4 +473,85 @@ test("manual chapters retain restorable versions after clearing and completion e
   assert.equal(h.$("apply-chapter-version").disabled, true);
   assert.equal(h.$("chapter-sync-required").className.includes("hidden"), true);
   assert.equal(h.$("sync-chapter-revisions").disabled, true);
+});
+
+test("bulk rewrite selection only adds matching completed chapters and names hidden selections", async () => {
+  const h = harness();
+  const chapters = Array.from({ length: 108 }, (_, i) => completed(i + 1));
+  h.chapters(chapters);
+  h.panel.sync(); await h.flush();
+  h.visible([chapters[5], chapters[13], { number: 120, source: "planned" }]);
+  await h.click("select-rewrite-chapters");
+  assert.match(h.$("rewrite-selected-count").textContent, /2 章：6、14$/);
+  assert.equal(h.$("select-rewrite-chapters").disabled, true);
+  h.visible([chapters[5]]);
+  h.panel.syncDisabled();
+  assert.match(h.$("rewrite-selected-count").textContent, /含筛选外 1 章/);
+  h.visible(chapters);
+  await h.click("select-rewrite-chapters");
+  assert.match(h.$("rewrite-selected-count").textContent, /已勾选 100 章/);
+  await h.click("clear-rewrite-chapters");
+  assert.equal(h.$("clear-rewrite-chapters").disabled, true);
+});
+
+test("comparing a candidate navigates separate changes without saving or replacing an editor draft", async () => {
+  const h = harness();
+  const history = versions();
+  history.versions[0].content = "共同开头\n\n旧钥匙\r\n保留的场景\n旧结尾";
+  history.versions[1].content = "共同开头\n新暗号\n保留的场景";
+  h.respond(async url => url.includes("/versions") ? history : edit());
+  h.panel.sync(); await h.flush();
+  assert.equal(h.$("compare-chapter-version").disabled, true);
+  await h.input("edit-chapter-content", "未提交的私稿");
+  h.panel.selectVersion("candidate");
+  assert.equal(h.$("compare-chapter-version").disabled, false);
+  await h.click("compare-chapter-version");
+  assert.equal(h.$("chapter-compare-dialog").open, true);
+  assert.match(h.$("chapter-compare-position").textContent, /1 \/ 2 处 · 修改/);
+  assert.equal(h.$("chapter-compare-before").textContent, "旧钥匙");
+  assert.equal(h.$("chapter-compare-after").textContent, "新暗号");
+  await h.click("next-chapter-change");
+  assert.match(h.$("chapter-compare-position").textContent, /2 \/ 2 处 · 删除/);
+  assert.match(h.$("chapter-compare-before-label").textContent, /第 4 段/);
+  assert.equal(h.$("chapter-compare-before").textContent, "旧结尾");
+  assert.equal(h.$("next-chapter-change").disabled, true);
+  await h.panel.loadVersions({ force: true });
+  assert.equal(h.$("chapter-compare-dialog").open, true);
+  await h.click("previous-chapter-change");
+  assert.equal(h.$("previous-chapter-change").disabled, true);
+  history.currentContentHash = "changed";
+  await h.panel.loadVersions({ force: true });
+  assert.equal(h.$("chapter-compare-dialog").open, false);
+  assert.equal(h.$("edit-chapter-content").value, "未提交的私稿");
+  assert.equal(h.calls.some(call => call.options?.method), false);
+});
+
+test("comparison supports a cleared manuscript, formatting-only spacing and large separated edits", async () => {
+  const h = harness(), history = versions();
+  h.respond(async url => url.includes("/versions") ? history : edit());
+  history.versions.shift();
+  history.currentContent = "";
+  const candidate = history.versions[0];
+  h.panel.sync(); await h.flush();
+  h.panel.selectVersion("candidate");
+  await h.click("compare-chapter-version");
+  assert.match(h.$("chapter-compare-position").textContent, /新增/);
+  assert.equal(h.$("chapter-compare-after").textContent, candidate.content);
+  await h.click("close-chapter-compare");
+  history.currentContent = "空行之间\n\n仍然相同";
+  candidate.content = "空行之间\r\n仍然相同\n";
+  await h.panel.loadVersions({ force: true });
+  await h.click("compare-chapter-version");
+  assert.match(h.$("chapter-compare-position").textContent, /非空段落一致/);
+  await h.click("close-chapter-compare");
+  history.currentContent = ["相同开头", ...Array(1200).fill("旧场景"), "相同结尾"].join("\n");
+  candidate.content = ["相同开头", ...Array(1200).fill("新场景"), "相同结尾"].join("\n");
+  await h.panel.loadVersions({ force: true });
+  await h.click("compare-chapter-version");
+  assert.match(h.$("chapter-compare-position").textContent, /合并展示/);
+  assert.match(h.$("chapter-compare-before-label").textContent, /第 2–1201 段/);
+  assert.equal(h.$("chapter-compare-before").textContent.includes("相同开头"), false);
+  h.context({ chapter: 2 });
+  h.panel.sync();
+  assert.equal(h.$("chapter-compare-dialog").open, false);
 });

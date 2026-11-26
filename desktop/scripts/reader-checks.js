@@ -278,6 +278,17 @@ async function runReaderChecks({ window, options, phase, api, step, waitForUI })
       await run('document.getElementById("nr-page-prev").click()');
       await waitForUI('document.getElementById("nr-chapter-jump").value === "1" && Number(document.getElementById("nr-progress").value)>990', "Previous-screen control did not return to the preceding chapter end");
     });
+    await step("reader-search-after-first-hundred-in-current-chapter", async () => {
+      await run('document.getElementById("nr-search-input").value="段："');
+      await change("nr-search-scope", "chapter");
+      await waitForUI('document.getElementById("nr-search-results").textContent.includes("1–100")', "First page of scoped matches missing");
+      await run('document.getElementById("nr-search-page-next").click()');
+      await waitForUI('document.getElementById("nr-search-results").textContent.includes("101–150")', "Could not reach the rest of the chapter");
+      await run('Array.from(document.querySelectorAll(".nr-search-result")).at(-1).click()');
+      await waitForUI('document.querySelector("mark.nr-search-hit")?.parentElement.textContent.startsWith("第150段")', "Late result opened the wrong paragraph");
+      await run('document.getElementById("nr-search-input").value=""');
+      await change("nr-search-scope", "book");
+    });
     await step("reader-unicode-search-jumps-to-exact-visible-match", async () => {
       const needle = "𠀀星河灯塔🚀";
       const response = await api(`/api/reader/search?${new URLSearchParams({ directory, q: needle })}`);
@@ -444,6 +455,12 @@ async function runReaderChecks({ window, options, phase, api, step, waitForUI })
       await run('document.getElementById("reload-chapter-versions").click()');
       await waitForUI(`Array.from(document.querySelectorAll('#chapter-version-list .chapter-version-button')).some(button=>button.textContent==='版本 ${written.number}')`, "Previous nonempty version did not remain after clearing prose");
       await run(`Array.from(document.querySelectorAll('#chapter-version-list .chapter-version-button')).find(button=>button.textContent==='版本 ${written.number}').click()`);
+      await run('document.getElementById("compare-chapter-version").click()');
+      assert.equal(await run('document.getElementById("chapter-compare-dialog").open'), true);
+      assert.equal(await run('document.getElementById("chapter-compare-after").textContent'), prose);
+      assert.match(await run('document.getElementById("chapter-compare-position").textContent'), /新增/);
+      await run('document.getElementById("close-chapter-compare").click()');
+      assert.equal((await api(`/api/reader/chapter/1?${new URLSearchParams({ directory: manual.directory })}`)).content, "");
       await waitForUI('!document.getElementById("apply-chapter-version").disabled', "Manual historical version cannot be restored"); await run('document.getElementById("apply-chapter-version").click()');
       await waitForUI(`fetch('/api/reader/chapter/1?directory='+encodeURIComponent(${JSON.stringify(manual.directory)})).then(r=>r.json()).then(chapter=>chapter.content===${JSON.stringify(prose)})`, "Manual version restore did not recover saved prose");
       assert.equal(await run('document.getElementById("chapter-sync-required").classList.contains("hidden")'), true, "Manual saving should not require an AI synchronization task");

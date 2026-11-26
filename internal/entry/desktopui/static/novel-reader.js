@@ -77,6 +77,7 @@
     let actionBusy = false, distillBusy = false, shelfLoading = false, bookLoading = false, fullscreenBusy = false, fullscreenWanted = false, fullscreenRevision = 0;
     let fullscreenTransition = null, layoutMetrics = null, cancelLayoutWait = null;
     let focusMode = false, lastLocation = null, searchMatches = [], searchTerm = "", searchIndex = -1, activeHit = null;
+    let searchPage = 0, searchCursors = [""], nextCursor = "", searchChapter = 0, searchRequest = null;
     const mobileShell = options.mobile || view.ainovelMobile;
     let mobile = false, readerVisible = true, readingWanted = false, mobileReading = false, mobilePanel = "", pointer = null, pendingTap = false;
     const isLoading = () => shelfLoading || bookLoading;
@@ -165,14 +166,20 @@
     sidebar.append(node("summary", "", "目录 · 搜索 · 书签"));
     const asideBody = node("div", "nr-sidebar-body");
     const searchForm = node("form", "nr-search"); const searchInput = input("nr-search-input", "搜索整本正文", "search"); searchInput.maxLength = 100; searchInput.setAttribute("aria-label", "搜索整本正文");
+    const searchScope = select("nr-search-scope", [["book", "整本"], ["chapter", "本章"]], search);
+    searchScope.value = "book"; searchScope.setAttribute("aria-label", "搜索范围");
+    searchInput.placeholder = "输入正文关键词"; searchInput.setAttribute("aria-label", "搜索正文关键词");
     const searchButton = button("搜索", () => search(), "nr-button", "nr-search-submit");
     searchForm.addEventListener("submit", (event) => { event.preventDefault(); search().catch(report); }); searchForm.append(searchInput, searchButton);
     const results = node("div", "nr-search-results", undefined, "nr-search-results"); results.setAttribute("aria-live", "polite");
     const searchNavigation = node("div", "nr-search-navigation");
-    searchNavigation.append(button("上一处", () => nextSearch(-1), "nr-button nr-small", "nr-search-prev"), button("下一处", () => nextSearch(1), "nr-button nr-small", "nr-search-next"));
+    searchNavigation.append(searchScope, button("上一处", () => nextSearch(-1), "nr-button nr-small", "nr-search-prev"), button("下一处", () => nextSearch(1), "nr-button nr-small", "nr-search-next"));
+    const searchPages = node("div", "nr-search-pages");
+    searchPages.append(button("上一组结果", () => readSearchPage(searchPage - 1), "nr-button nr-small", "nr-search-page-prev"),
+      button("下一组结果", () => readSearchPage(searchPage + 1), "nr-button nr-small", "nr-search-page-next"));
     const toc = node("nav", "nr-toc", undefined, "nr-toc"); toc.setAttribute("aria-label", "章节目录");
     const bookmarks = node("div", "nr-bookmarks", undefined, "nr-bookmarks");
-    asideBody.append(searchForm, searchNavigation, results, node("h4", "", "章节目录"), toc, node("h4", "", "我的书签"), bookmarks); sidebar.append(asideBody);
+    asideBody.append(searchForm, searchNavigation, searchPages, results, node("h4", "", "章节目录"), toc, node("h4", "", "我的书签"), bookmarks); sidebar.append(asideBody);
     const page = node("div", "nr-page", undefined, "nr-page"); page.tabIndex = 0; page.setAttribute("aria-label", "正文，使用滚轮或方向键阅读");
     const manuscript = node("article", "nr-manuscript", undefined, "nr-manuscript");
     page.append(manuscript); page.addEventListener("scroll", () => { if (book && current && !restoring) { captureOffset(); scheduleSave(); } });
@@ -568,7 +575,7 @@
       if (book?.directory === directory) {
         setFocusMode(false); lastLocation = null; searchMatches = []; activeHit = null;
         void leaveFullscreen().catch(report);
-        sequence++; chapterSequence++; searchSequence++;
+        sequence++; chapterSequence++; resetSearch();
         clearTimeout(saveTimer); saveTimer = null;
         stopPDF(); book = null; current = null; bookLoading = false; progress = normalizeProgress();
         reading.hidden = true; shelfPanel.open = true; readingWanted = false; updateMobileReading();
@@ -579,7 +586,7 @@
     }
     async function openBook(directory) {
       if (!directory || destroyed) return;
-      const token = ++sequence; ++chapterSequence; ++searchSequence;
+      const token = ++sequence; ++chapterSequence; resetSearch();
       bookLoading = true; renderControls(); status("正在打开作品…"); captureOffset(); stopPDF();
       try {
         await saveProgress(); if (token !== sequence || destroyed) return;
@@ -630,12 +637,18 @@
       refs["nr-distill-book"].disabled = loading || distillBusy || !book || !book.chapters.some((chapter) => chapter.hasText !== false);
       refs["nr-edit"].disabled = loading || !current || actionBusy; refs["nr-add-bookmark"].disabled = loading || !current;
       font.disabled = height.disabled = fontFamily.disabled = pageWidth.disabled = paragraphSpacing.disabled = loading || !book || progress.mode === "original"; theme.disabled = mode.disabled = loading || !book;
-      searchInput.disabled = searchButton.disabled = loading || !book;
+      searchScope.disabled = searchInput.disabled = searchButton.disabled = loading || !book || (searchScope.value === "chapter" && !current);
+      searchPages.hidden = !searchPage && !nextCursor;
+      refs["nr-search-page-prev"].disabled = loading || Boolean(searchRequest) || searchPage === 0;
+      refs["nr-search-page-next"].disabled = loading || Boolean(searchRequest) || !nextCursor;
       sidebarButton.disabled = loading || !book;
       chapterJump.disabled = progressSlider.disabled = loading || !current;
       refs["nr-page-prev"].disabled = refs["nr-page-next"].disabled = loading || !current;
-      refs["nr-search-prev"].disabled = refs["nr-search-next"].disabled = loading || !searchMatches.length;
+      const cannotNavigate = loading || Boolean(searchRequest) || !searchMatches.length;
+      refs["nr-search-prev"].disabled = cannotNavigate || (searchIndex === 0 && !searchPage && Boolean(nextCursor));
+      refs["nr-search-next"].disabled = cannotNavigate || (searchPage > 0 && !nextCursor && searchIndex === searchMatches.length - 1);
       refs["nr-return-location"].disabled = loading || !lastLocation || lastLocation.directory !== book?.directory;
+      for (const item of results.children) if (item.dataset.resultIndex !== undefined) item.disabled = loading || Boolean(searchRequest);
       for (const item of toc.children) item.disabled = loading;
       for (const row of bookmarks.children) for (const item of row.children) item.disabled = loading;
       const index = book?.chapters.findIndex((chapter) => chapter.number === current?.number) ?? -1;
@@ -646,6 +659,10 @@
       closeMobilePanel();
       if (save && current) { captureOffset(); saveProgress(); }
       const token = ++chapterSequence, bookToken = sequence, directory = book.directory;
+      const refreshScoped = searchScope.value === "chapter" && searchChapter !== Number(number) && searchTerm && searchInput.value.trim() === searchTerm;
+      if (searchChapter && searchChapter !== Number(number)) {
+        resetSearch(); results.replaceChildren();
+      }
       activeHit = null;
       renderTask?.cancel(); renderTask = null; current = null; renderControls(); manuscript.replaceChildren(node("p", "nr-empty", "正在加载章节…"));
       const chapter = await api(`/api/reader/chapter/${Number(number)}?${query(directory)}`);
@@ -653,6 +670,7 @@
       if (Number(chapter.number) !== Number(number)) throw new Error("返回的章节与请求不匹配");
       current = chapter; progress.chapter = Number(number); progress.offset = clamp(offset, 0, 1, 0); renderToc(); renderControls();
       await renderChapter(token); if (token === chapterSequence && bookToken === sequence) { scheduleSave(); status(chapter.content?.trim() ? "阅读进度自动保存。朗读、配图和视频会打开本章的创作工具。" : book.source?.format === "pdf" ? "本页没有可提取文字。可阅读 PDF 原页；扫描文字暂不支持 OCR，编辑补充正文后可使用朗读等功能。" : "本章暂无正文，可手动编辑。 "); }
+      if (refreshScoped && token === chapterSequence && bookToken === sequence && searchScope.value === "chapter") await search();
     }
     function safeLocalURL(value) {
       try { const url = new URL(value, scope.location?.href || "http://localhost/"); return url.origin === new URL(scope.location?.href || "http://localhost/").origin && url.pathname.startsWith("/api/") ? url.href : ""; } catch (_) { return ""; }
@@ -774,8 +792,19 @@
       if (progress.bookmarks.some((mark) => mark.chapter === current.number && Math.abs(mark.offset - progress.offset) < 0.005)) { status("此位置已有书签。"); return; }
       progress.bookmarks.push({ chapter: current.number, offset: progress.offset, label: `${current.title || `第 ${current.number} 章`} · ${Math.round(progress.offset * 100)}%`.slice(0, 80) }); renderBookmarks(); scheduleSave(); status("书签已添加。");
     }
+    function resetSearch() {
+      ++searchSequence;
+      searchRequest?.abort(); searchRequest = null;
+      searchPage = 0; nextCursor = ""; searchCursors = [""]; searchChapter = 0;
+      searchMatches = []; searchIndex = -1;
+    }
+
     async function search() {
-      if (!book || isLoading()) return; const term = searchInput.value.trim(); const token = ++searchSequence, directory = book.directory; results.replaceChildren();
+      if (!book || isLoading() || (searchScope.value === "chapter" && !current)) return;
+      resetSearch();
+      searchTerm = searchInput.value.trim();
+      searchChapter = searchScope.value === "chapter" ? current?.number : 0;
+      results.replaceChildren();
       if (activeHit) {
         captureOffset(); activeHit = null;
         const old = manuscript.querySelector?.(".nr-prose") || [...manuscript.children].find(child => child.className === "nr-prose");
@@ -785,24 +814,69 @@
           restoreOffset(chapterSequence);
         }
       }
-      searchMatches = []; searchIndex = -1; searchTerm = term; renderControls();
-      if (!term) return; results.append(node("p", "nr-muted", "正在搜索…"));
-      const response = await api(`/api/reader/search?${query(directory)}&q=${encodeURIComponent(term)}`); if (token !== searchSequence || directory !== book?.directory || destroyed) return;
-      searchMatches = Array.isArray(response.matches) ? response.matches : [];
-      results.replaceChildren(node("p", "nr-muted", `找到 ${searchMatches.length} 处结果${response.truncated ? "（最多显示 100 处）" : ""}`));
-      searchMatches.forEach((match, index) => { const item = button("", () => openSearchHit(index), "nr-search-result"); item.dataset.resultIndex = String(index); item.append(node("strong", "", match.title), node("span", "", match.excerpt)); results.append(item); });
       renderControls();
+      if (searchTerm) await readSearchPage(0);
     }
+
+    async function readSearchPage(index) {
+      if (!book || !searchTerm || searchRequest || index < 0 || index >= searchCursors.length) return false;
+      const token = ++searchSequence, directory = book.directory;
+      const request = new AbortController();
+      searchRequest = request;
+      const params = query(directory);
+      params.set("q", searchTerm);
+      if (searchChapter) params.set("chapter", searchChapter);
+      if (searchCursors[index]) params.set("cursor", searchCursors[index]);
+      if (!searchMatches.length) results.replaceChildren(node("p", "nr-muted", "正在搜索…"));
+      renderControls();
+      try {
+        const response = await api(`/api/reader/search?${params}`, { signal: request.signal });
+        if (token !== searchSequence || directory !== book?.directory || destroyed) return false;
+        searchPage = index; searchIndex = -1;
+        searchMatches = Array.isArray(response.matches) ? response.matches : [];
+        nextCursor = response.nextCursor || "";
+        searchCursors.length = index + 1;
+        if (nextCursor) searchCursors.push(nextCursor);
+        const first = index * 100 + 1, end = first + searchMatches.length - 1;
+        const range = index || nextCursor ? `显示第 ${first}–${end} 处结果` : `找到 ${searchMatches.length} 处结果`;
+        results.replaceChildren(node("p", "nr-muted", (searchChapter ? `第 ${searchChapter} 章 · ` : "") + range));
+        searchMatches.forEach((match, i) => {
+          const item = button("", () => openSearchHit(i), "nr-search-result");
+          item.dataset.resultIndex = String(i); item.append(node("strong", "", match.title), node("span", "", match.excerpt)); results.append(item);
+        });
+        return true;
+      } catch (error) {
+        if (token === searchSequence && !destroyed) {
+          if (!searchMatches.length) results.replaceChildren(node("p", "nr-muted", error.message));
+          report(error);
+        }
+        return false;
+      } finally {
+        if (searchRequest === request) { searchRequest = null; renderControls(); }
+      }
+    }
+
     async function nextSearch(direction) {
-      if (!searchMatches.length || isLoading()) return;
-      const next = searchIndex < 0 ? direction > 0 ? 0 : searchMatches.length - 1 : (searchIndex + direction + searchMatches.length) % searchMatches.length;
+      if (!searchMatches.length || isLoading() || searchRequest) return;
+      let next = searchIndex < 0 ? (direction > 0 ? 0 : searchMatches.length - 1) : searchIndex + direction;
+      if (next >= searchMatches.length && nextCursor) {
+        if (!await readSearchPage(searchPage + 1)) return;
+        next = 0;
+      } else if (next < 0 && searchPage > 0) {
+        if (!await readSearchPage(searchPage - 1)) return;
+        next = searchMatches.length - 1;
+      } else if (searchPage > 0 || nextCursor) {
+        if (next < 0 || next >= searchMatches.length) return;
+      } else {
+        next = (next + searchMatches.length) % searchMatches.length;
+      }
       await openSearchHit(next);
     }
     async function openSearchHit(index) {
-      const match = searchMatches[index]; if (!match || isLoading()) return;
+      const match = searchMatches[index]; if (!match || isLoading() || searchRequest) return;
       const directory = book.directory, token = searchSequence;
       rememberLocation(); const loading = openChapter(match.chapter), expectedChapter = chapterSequence; await loading;
-      if (destroyed || book?.directory !== directory || token !== searchSequence || chapterSequence !== expectedChapter || current?.number !== match.chapter) return;
+      if (destroyed || book?.directory !== directory || token !== searchSequence || match !== searchMatches[index] || chapterSequence !== expectedChapter || current?.number !== match.chapter) return;
       if (match.contentHash && current.contentHash && match.contentHash !== current.contentHash) { status("正文已更新，请重新搜索以准确定位。"); return; }
       const size = Array.from(current.content || "").length;
       if (!Number.isInteger(match.start) || !Number.isInteger(match.length) || match.start < 0 || match.length <= 0 || match.start + match.length > size) { status("已打开对应章节，请重新搜索以获取准确位置。"); return; }
@@ -821,7 +895,8 @@
         layoutMetrics = readLayout(); restoring = false; captureOffset(); scheduleSave();
       }
       for (const item of results.children) if (item.dataset.resultIndex !== undefined) item.setAttribute("aria-current", Number(item.dataset.resultIndex) === index ? "true" : "false");
-      status(`第 ${index + 1} / ${searchMatches.length} 处匹配 · ${searchTerm}`); page.focus({ preventScroll: true });
+      renderControls();
+      status(`第 ${searchPage * 100 + index + 1} 处匹配 · ${searchTerm}`); page.focus({ preventScroll: true });
     }
     async function chapterAction(callback) {
       if (!current || actionBusy || isLoading()) return;
@@ -891,7 +966,7 @@
     function sync() { return book && getContext().directory === book.directory ? openBook(book.directory) : Promise.resolve(); }
     function destroy() {
       setFocusMode(false); root.removeEventListener?.("keydown", onReaderKeydown);
-      flushProgress(); closeMobilePanel(false); mobileShell?.setReaderImmersive?.(false); unregisterMobile?.(); void leaveFullscreen().catch(() => {}); destroyed = true; sequence++; chapterSequence++; searchSequence++; shelfSequence++; fullscreenRevision++; clearTimeout(saveTimer); clearTimeout(retryTimer);
+      flushProgress(); closeMobilePanel(false); mobileShell?.setReaderImmersive?.(false); unregisterMobile?.(); void leaveFullscreen().catch(() => {}); destroyed = true; sequence++; chapterSequence++; resetSearch(); shelfSequence++; fullscreenRevision++; clearTimeout(saveTimer); clearTimeout(retryTimer);
       doc.removeEventListener?.("fullscreenchange", onFullscreenChanged);
       cancelLayoutWait?.(); layoutObserver?.disconnect(); view.removeEventListener?.("resize", preserveLayout);
       doc.removeEventListener?.("visibilitychange", visibilityChanged); scope.removeEventListener?.("pagehide", flushProgress); scope.removeEventListener?.("beforeunload", flushProgress);

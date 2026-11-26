@@ -77,7 +77,7 @@ func createChapterMediaArchive(ctx context.Context, directory string, view chapt
 		chapter.Body = &view.Content
 	}
 	if view.HasPlan {
-		chapter.Plan = &mediaworkspace.Plan{CoreEvent: view.CoreEvent, Hook: view.Hook, Scenes: append([]string{}, view.Scenes...), Fingerprint: view.PlanningFingerprint}
+		chapter.Plan = &mediaworkspace.Plan{CoreEvent: view.CoreEvent, Hook: view.Hook, Scenes: append([]string{}, view.Scenes...), Setups: view.Setups, Payoffs: view.Payoffs, Fingerprint: view.PlanningFingerprint}
 	}
 	images := make([]mediaworkspace.Image, 0, len(items))
 	snapshot := make(map[string]chaptermedia.Item, len(items))
