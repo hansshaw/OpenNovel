@@ -41,6 +41,7 @@ type modelTarget struct {
 	name       string
 	model      agentcore.ChatModel
 	jsonSchema *bool
+	reasoning  agentcore.ThinkingLevel
 }
 
 // SwappableModel 是可热切换的 ChatModel 包装器。
@@ -53,6 +54,8 @@ type SwappableModel struct {
 	// jsonSchema 是当前选中模型的 config json_schema 三态声明，与 provider/name
 	// 同锁原子切换；llmcontract.Resolve 经结构匹配接口每次现读。
 	jsonSchema *bool
+	role       string
+	set        *ModelSet
 }
 
 func NewSwappableModel(provider, name string, model agentcore.ChatModel, jsonSchema *bool) *SwappableModel {
@@ -169,7 +172,7 @@ func (ms *ModelSet) roleModelLocked(role string) *SwappableModel {
 		ms.inherited = make(map[string]*SwappableModel)
 	}
 	provider, name := ms.Default.Current()
-	m := NewSwappableModel(provider, name, ms.Default.SwappableModel.Current(), ms.Default.JSONSchemaOverride())
+	m := ms.newRoleModel(role, provider, name, ms.Default.SwappableModel.Current(), ms.Default.JSONSchemaOverride())
 	ms.inherited[role] = m
 	return m
 }
@@ -262,7 +265,7 @@ func (ms *ModelSet) Swap(role, provider, model string) error {
 		ms.models[role] = existing
 		delete(ms.inherited, role)
 	} else {
-		ms.models[role] = NewSwappableModel(provider, model, next, jsonSchema)
+		ms.models[role] = ms.newRoleModel(role, provider, model, next, jsonSchema)
 	}
 	if ms.config.Roles == nil {
 		ms.config.Roles = make(map[string]RoleConfig)
@@ -339,7 +342,7 @@ func (ms *ModelSet) ApplyPrepared(candidate *ModelSet) {
 			existing.Swap(next.provider, next.name, next.model, next.jsonSchema)
 			nextModels[role] = existing
 		} else {
-			nextModels[role] = NewSwappableModel(next.provider, next.name, next.model, next.jsonSchema)
+			nextModels[role] = ms.newRoleModel(role, next.provider, next.name, next.model, next.jsonSchema)
 		}
 	}
 	nextInherited := make(map[string]*SwappableModel)
@@ -431,15 +434,16 @@ func NewModelSet(cfg Config) (*ModelSet, error) {
 	}
 
 	ms := &ModelSet{
-		Default:           NewSwappableModel(cfg.Provider, cfg.ModelName, defaultModel, cfg.ModelJSONSchema(cfg.Provider, cfg.ModelName)),
 		models:            make(map[string]*SwappableModel),
 		inherited:         make(map[string]*SwappableModel),
 		fallbacks:         make(map[string][]modelTarget),
-		config:            cfg,
+		config:            CloneConfig(cfg),
 		requestJournal:    journal,
 		requestLifecycle:  lifecycle,
 		requestLifecycles: map[*modelRequestLifecycle]struct{}{lifecycle: {}},
 	}
+
+	ms.Default = ms.newRoleModel("default", cfg.Provider, cfg.ModelName, defaultModel, cfg.ModelJSONSchema(cfg.Provider, cfg.ModelName))
 
 	// 创建角色覆盖模型
 	for role, rc := range cfg.Roles {
@@ -452,7 +456,7 @@ func NewModelSet(cfg Config) (*ModelSet, error) {
 		if err != nil {
 			return nil, fmt.Errorf("role %s model: %w", role, err)
 		}
-		ms.models[role] = NewSwappableModel(rc.Provider, rc.Model, m, cfg.ModelJSONSchema(rc.Provider, rc.Model))
+		ms.models[role] = ms.newRoleModel(role, rc.Provider, rc.Model, m, cfg.ModelJSONSchema(rc.Provider, rc.Model))
 		slog.Info("角色模型分配", "module", "config", "role", role, "provider", rc.Provider, "model", rc.Model)
 		if len(rc.Fallbacks) == 0 {
 			continue
@@ -674,7 +678,7 @@ type failoverModel struct {
 func (m *failoverModel) Generate(ctx context.Context, messages []agentcore.Message, tools []agentcore.ToolSpec, opts ...agentcore.CallOption) (*agentcore.LLMResponse, error) {
 	ctx = withDefaultModelRequestAgent(ctx, m.role)
 	current := m.currentTarget()
-	resp, err := current.model.Generate(ctx, messages, tools, opts...)
+	resp, err := current.model.Generate(ctx, messages, tools, current.callOptions(opts)...)
 	if err == nil {
 		return resp, nil
 	}
@@ -684,7 +688,7 @@ func (m *failoverModel) Generate(ctx context.Context, messages []agentcore.Messa
 		return nil, err
 	}
 	m.reportFailover(current, next, reason, err)
-	return next.model.Generate(ctx, messages, tools, opts...)
+	return next.model.Generate(ctx, messages, tools, next.callOptions(opts)...)
 }
 
 func (m *failoverModel) GenerateStream(ctx context.Context, messages []agentcore.Message, tools []agentcore.ToolSpec, opts ...agentcore.CallOption) (<-chan agentcore.StreamEvent, error) {
@@ -792,14 +796,7 @@ func (m *failoverModel) currentTarget() modelTarget {
 	if m.primary == nil {
 		return modelTarget{}
 	}
-	m.primary.mu.RLock()
-	defer m.primary.mu.RUnlock()
-	return modelTarget{
-		provider:   m.primary.provider,
-		name:       m.primary.name,
-		model:      m.primary.SwappableModel.Current(),
-		jsonSchema: cloneBoolPtr(m.primary.jsonSchema),
-	}
+	return m.primary.requestTarget()
 }
 
 func (m *failoverModel) pickFallback(current modelTarget, err error, requireJSONSchema bool) (modelTarget, string, bool) {
@@ -828,6 +825,7 @@ func (m *failoverModel) pickFallback(current modelTarget, err error, requireJSON
 		if requireJSONSchema && !supportsJSONSchema(target) {
 			continue
 		}
+		target.reasoning = current.reasoning
 		return target, reason, true
 	}
 	return modelTarget{}, reason, false
@@ -865,7 +863,7 @@ func (m *failoverModel) startAttempt(ctx context.Context, target modelTarget, me
 		return nil, nil, fmt.Errorf("no model configured")
 	}
 
-	streamCh, err := target.model.GenerateStream(ctx, messages, tools, opts...)
+	streamCh, err := target.model.GenerateStream(ctx, messages, tools, target.callOptions(opts)...)
 	if err == nil {
 		return streamCh, nil, nil
 	}

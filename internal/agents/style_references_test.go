@@ -36,7 +36,7 @@ func TestEveryCreationWorkerUsesSelectedStyleReferenceCallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner, _, _ := BuildWorkers(cfg, st, tools.NewStyleStatsIndex(st), models, assets.Load("default", assets.LoadOptions{}), nil, nil)
+	runner, _ := BuildWorkers(cfg, st, tools.NewStyleStatsIndex(st), models, assets.Load("default", assets.LoadOptions{}), nil, nil)
 	for _, worker := range []string{"architect_short", "architect_long", "writer", "editor"} {
 		agent, ok := runner.AgentConfig(worker)
 		if !ok {

@@ -859,7 +859,7 @@ func (s *Server) testConfig(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "创建模型失败: "+redactConfig(candidate, err.Error()))
 		return
 	}
-	if err = host.ProbeModelConnection(ctx, models.Default, candidate.ResolveReasoningEffort("default")); err != nil {
+	if err = host.ProbeModelConnection(ctx, models.Default); err != nil {
 		fail(w, 502, "连接测试失败: "+redactConfig(candidate, err.Error()))
 		return
 	}

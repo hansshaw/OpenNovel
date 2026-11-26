@@ -98,7 +98,7 @@ func TestCoCreateStreamUsesAuthoritativeDone(t *testing.T) {
 				}},
 			})}
 			progress := make(map[string]string)
-			got, err := coCreateStream(context.Background(), coCreateTestModels(model), "", st.Sessions, coCreateSystemPrompt,
+			got, err := coCreateStream(context.Background(), coCreateTestModels(model), st.Sessions, coCreateSystemPrompt,
 				[]CoCreateMessage{{Role: "user", Content: "继续共创"}}, func(kind, text string) { progress[kind] = text })
 			if err != nil {
 				t.Fatal(err)
@@ -162,7 +162,7 @@ func TestCoCreateStreamRejectsIncompleteResponse(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			model := &coCreateEventsModel{events: tt.events}
-			got, err := coCreateStream(context.Background(), coCreateTestModels(model), "", nil, coCreateSystemPrompt,
+			got, err := coCreateStream(context.Background(), coCreateTestModels(model), nil, coCreateSystemPrompt,
 				[]CoCreateMessage{{Role: "user", Content: "继续共创"}}, nil)
 			if err == nil || tt.wantErr != "" && !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("incomplete response accepted or wrong error: reply=%+v, err=%v", got, err)
@@ -185,7 +185,7 @@ func TestCoCreateStreamCancellationDoesNotPublishDraftOrRetry(t *testing.T) {
 		{Type: agentcore.StreamEventTextDelta, Delta: raw},
 		{Type: agentcore.StreamEventDone, Message: testTextMsg(raw)},
 	}}
-	got, err := coCreateStream(ctx, coCreateTestModels(model), "", nil, coCreateSystemPrompt,
+	got, err := coCreateStream(ctx, coCreateTestModels(model), nil, coCreateSystemPrompt,
 		[]CoCreateMessage{{Role: "user", Content: "继续共创"}}, func(_, _ string) { cancel() })
 	if !errors.Is(err, context.Canceled) || got.Ready || got.Prompt != "" {
 		t.Fatalf("cancellation must preserve the previous draft: reply=%+v, err=%v", got, err)

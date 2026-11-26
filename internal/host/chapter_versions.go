@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hansshaw/OpenNovel/internal/agents"
 	"github.com/hansshaw/OpenNovel/internal/bootstrap"
 	"github.com/hansshaw/OpenNovel/internal/domain"
 	"github.com/hansshaw/OpenNovel/internal/tools"
@@ -146,12 +145,6 @@ func (h *Host) RewriteWorkbenchChapters(ctx context.Context, chapters []int, ins
 	model := h.models.ForRoleWithFailover("writer", nil)
 	provider, name, _ := h.models.CurrentSelection("writer")
 	maxTokens, _ := h.cfg.ResolveMaxOutputTokens(provider, name)
-	options := []agentcore.CallOption{agentcore.WithMaxTokens(maxTokens)}
-	if level, err := agents.ParseThinkingLevel(h.cfg.ResolveReasoningEffort("writer")); err == nil {
-		if resolved, ok := agents.ResolveThinkingForModel(model, level); ok {
-			options = append(options, agentcore.WithThinking(resolved))
-		}
-	}
 	var versions []domain.ChapterVersion
 	baseHashes := map[int]string{}
 	for _, chapter := range chapters {
@@ -197,7 +190,7 @@ func (h *Host) RewriteWorkbenchChapters(ctx context.Context, chapters []int, ins
 			system += "\n\n项目作者指令：\n" + directive
 		}
 		h.emitEvent(Event{Time: time.Now(), Category: "SYSTEM", Agent: "writer", Summary: fmt.Sprintf("正在生成第 %d 章重写候选（原稿保留）", chapter)})
-		message, err := streamChapterCandidate(bootstrap.WithModelRequestAgent(ctx, "writer"), model, []agentcore.Message{agentcore.SystemMsg(system), agentcore.UserMsg(string(payload))}, h.emitDelta, options...)
+		message, err := streamChapterCandidate(bootstrap.WithModelRequestAgent(ctx, "writer"), model, []agentcore.Message{agentcore.SystemMsg(system), agentcore.UserMsg(string(payload))}, h.emitDelta, agentcore.WithMaxTokens(maxTokens))
 		if err != nil {
 			return versions, fmt.Errorf("第 %d 章重写失败（原稿保留）: %w", chapter, err)
 		}

@@ -93,13 +93,12 @@ const (
 	tagSuggestions = "suggestions"
 )
 
-func coCreateStream(ctx context.Context, models *bootstrap.ModelSet, effort string, sessions *store.SessionStore, sysPrompt string, history []CoCreateMessage, onProgress func(kind, text string)) (reply CoCreateReply, err error) {
+func coCreateStream(ctx context.Context, models *bootstrap.ModelSet, sessions *store.SessionStore, sysPrompt string, history []CoCreateMessage, onProgress func(kind, text string)) (reply CoCreateReply, err error) {
 	ctx = bootstrap.WithModelRequestAgent(ctx, "thinking")
 	if len(history) == 0 {
 		return CoCreateReply{}, fmt.Errorf("cocreate history is empty")
 	}
 	model := models.ForRole("thinking")
-	options := modelThinkingOptions(model, effort)
 	budget := coCreateLimits(models, model)
 	var raw, thinking strings.Builder
 	var attempts []coCreateAttempt
@@ -118,7 +117,7 @@ func coCreateStream(ctx context.Context, models *bootstrap.ModelSet, effort stri
 		}
 	}()
 
-	prepared, err := prepareCoCreateContext(ctx, model, sysPrompt, history, budget, options...)
+	prepared, err := prepareCoCreateContext(ctx, model, sysPrompt, history, budget)
 	budget = prepared.Budget
 	if err != nil {
 		return CoCreateReply{}, err
@@ -134,7 +133,7 @@ func coCreateStream(ctx context.Context, models *bootstrap.ModelSet, effort stri
 			onProgress(CoCreateProgressThinking, "")
 			onProgress(CoCreateProgressReply, "")
 		}
-		stop, callErr := receiveCoCreateStream(ctx, model, messages, budget.Output, &raw, &thinking, onProgress, options...)
+		stop, callErr := receiveCoCreateStream(ctx, model, messages, budget.Output, &raw, &thinking, onProgress)
 		attempts = append(attempts, coCreateAttempt{MaxOutputTokens: budget.Output, StopReason: string(stop), RawRunes: len([]rune(raw.String())), Error: errString(callErr)})
 		if callErr != nil {
 			if agentcore.IsContextOverflow(callErr) {
@@ -187,8 +186,8 @@ func coCreateStream(ctx context.Context, models *bootstrap.ModelSet, effort stri
 	return CoCreateReply{}, fmt.Errorf("cocreate generate failed")
 }
 
-func receiveCoCreateStream(ctx context.Context, model agentcore.ChatModel, messages []agentcore.Message, output int, raw, thinking *strings.Builder, onProgress func(string, string), options ...agentcore.CallOption) (agentcore.StopReason, error) {
-	stream, err := model.GenerateStream(ctx, messages, nil, append(options, agentcore.WithMaxTokens(output))...)
+func receiveCoCreateStream(ctx context.Context, model agentcore.ChatModel, messages []agentcore.Message, output int, raw, thinking *strings.Builder, onProgress func(string, string)) (agentcore.StopReason, error) {
+	stream, err := model.GenerateStream(ctx, messages, nil, agentcore.WithMaxTokens(output))
 	if err != nil {
 		return "", fmt.Errorf("cocreate generate: %w", err)
 	}

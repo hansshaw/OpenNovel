@@ -192,7 +192,7 @@ type RoleConfig struct {
 	Model     string     `json:"model"`               // 主模型名（原样透传，不做任何解析）
 	Fallbacks []ModelRef `json:"fallbacks,omitempty"` // 显式备用 provider/model 列表
 	// ReasoningEffort 该角色的推理强度（off/low/medium/high/xhigh/max），空=继承顶层默认。
-	// 由 agents.ParseThinkingLevel 校验后应用，越级值视为空。
+	// 由 ParseThinkingLevel 校验后应用，越级值视为空。
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
@@ -563,7 +563,7 @@ func LogOutputLimitChoice(role, model string, limit int, source OutputTokenSourc
 
 // ResolveReasoningEffort 返回某角色生效的推理强度原始串（off/low/medium/high/xhigh/max 或空）。
 // 优先级：角色级 Roles[role].ReasoningEffort → 顶层默认 ReasoningEffort → ""（不覆盖，沿用模型/provider 默认）。
-// role 为空或 "default" 时直接取顶层默认。值的合法性由 agents.ParseThinkingLevel 把关。
+// role 为空或 "default" 时直接取顶层默认。值的合法性由 ParseThinkingLevel 把关。
 func (c Config) ResolveReasoningEffort(role string) string {
 	if role != "" && role != "default" {
 		if rc, ok := c.Roles[role]; ok && rc.ReasoningEffort != "" {
