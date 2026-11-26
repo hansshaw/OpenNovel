@@ -4,7 +4,7 @@ source "$(dirname -- "$0")/env.sh"
 
 input="${1:-$AINOVEL_ROOT/mobile/app/build/outputs/apk/release/app-release-unsigned.apk}"
 signing_dir="${AINOVEL_SIGNING_DIR:-$HOME/.local/share/ainovel/android-signing}"
-build_tools="$ANDROID_HOME/build-tools/35.0.0"
+build_tools="$ANDROID_HOME/build-tools/$AINOVEL_BUILD_TOOLS_VERSION"
 if [[ ! -f "$input" ]]; then
   printf 'Missing unsigned release APK: %s\n' "$input" >&2
   exit 1
