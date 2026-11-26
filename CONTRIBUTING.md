@@ -39,7 +39,7 @@ OpenNovel 由 [hansshaw](https://github.com/hansshaw) 维护，欢迎提交可�
 
 ## 依赖、离线资源与许可
 
-依赖更新需同时提交相应锁文件。PDF.js 采用固定版本并随应用离线分发；更新 `pdfjs-dist` 时，还需同步 `desktop/scripts/sync-reader-vendor.js` 中的版本，执行：
+依赖更新需同时提交相应锁文件。桌面应用按 `desktop/package.json` 中固定的版本离线分发 PDF.js。更新 `pdfjs-dist` 后，执行以下命令同步并验证随包资源。
 
 ```sh
 npm --prefix desktop run vendor:reader
