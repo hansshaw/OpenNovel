@@ -1,7 +1,6 @@
 package desktopui
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -398,9 +397,14 @@ func TestCopyProjectFilesRejectsExcludedSymlinks(t *testing.T) {
 
 func TestCopyWorkspaceLogsSnapshotFailureWithoutExposingDetails(t *testing.T) {
 	s := newTestServer(t, true)
-	var logs bytes.Buffer
+	// Background host tasks may log while the request's diagnostics are read.
+	logs, err := os.CreateTemp(t.TempDir(), "copy-*.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logs.Close()
 	previous := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	slog.SetDefault(slog.New(slog.NewTextHandler(logs, nil)))
 	defer slog.SetDefault(previous)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -411,8 +415,13 @@ func TestCopyWorkspaceLogsSnapshotFailureWithoutExposingDetails(t *testing.T) {
 	if w.Code != http.StatusInternalServerError || strings.Contains(w.Body.String(), "context canceled") || strings.Contains(w.Body.String(), s.dir) {
 		t.Fatalf("copy exposed internal failure: %d %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(logs.String(), "context canceled") || !strings.Contains(logs.String(), "项目复制快照失败") {
-		t.Fatalf("copy failure lacked server diagnostics: %s", logs.String())
+	data, err := os.ReadFile(logs.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := string(data)
+	if !strings.Contains(diagnostics, "context canceled") || !strings.Contains(diagnostics, "项目复制快照失败") {
+		t.Fatalf("copy failure lacked server diagnostics: %s", diagnostics)
 	}
 }
 
