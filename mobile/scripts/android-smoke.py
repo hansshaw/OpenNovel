@@ -24,6 +24,7 @@ COMPONENT = PACKAGE + "/.MainActivity"
 # labels/classes observed in its accessibility tree, not screen coordinates.
 WEB_SELECTORS = {
     "create-project": {"text": "＋ 新建创作项目", "clickable": "true"},
+    "project-search": {"class": "android.widget.EditText"},
     "new-project-mode": {"text": "创作方式", "clickable": "true"},
     "new-project-name": {"class": "android.widget.EditText"},
     "confirm-create-project": {"text": "创建项目", "clickable": "true"},
@@ -154,6 +155,15 @@ class Device:
         else:
             self.shell("input", "swipe", str(width*3//4), str(bottom-50), str(width*3//4), str(height//3), "400")
 
+    def filter_project(self, project):
+        self.find(text="项目中心", timeout=50)
+        field = self.find(resource="project-search", timeout=50)
+        if field.attrib.get("text") != project:
+            self.tap(resource="project-search")
+            self.shell("input", "keycombination", "KEYCODE_CTRL_LEFT", "KEYCODE_A")
+            self.shell("input", "text", project)
+            self.shell("input", "keyevent", "4")
+
     def project_action(self, project, action):
         """Choose a control in this test's card, preserving existing projects."""
         for attempt in range(5):
@@ -258,7 +268,7 @@ def main():
         device.record("Created a chapter and saved its text through the phone UI")
 
         device.shell("input", "keyevent", "4")
-        device.find(contains=project)
+        device.filter_project(project)
         for format_ in ("TXT", "EPUB"):
             device.project_action(project, format_)
             # Android's system picker owns destination selection and storage
@@ -267,13 +277,13 @@ def main():
                 device.tap(text="SAVE", timeout=25)
             except AssertionError:
                 device.tap(text="Save", timeout=5)
-            device.find(contains=project, timeout=25)
+            device.find(text=project, timeout=25, scroll=True)
             device.capture("03-export-" + format_.lower())
             device.record("Saved " + format_ + " through Android's document picker")
 
         device.shell("am", "force-stop", PACKAGE)
         device.shell("am", "start", "-n", COMPONENT)
-        device.find(contains=project, timeout=50)
+        device.filter_project(project)
         device.project_action(project, "打开项目")
         # The rendered reader may omit text descendants from accessibility.
         # The editor exposes its complete saved value without changing it.
