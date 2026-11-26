@@ -52,10 +52,19 @@ class Device:
         return self.adb("shell", *arguments, **kwargs)
 
     def tree(self):
-        self.shell("uiautomator", "dump", "/sdcard/ainovel-smoke.xml", timeout=20)
-        data = self.adb("exec-out", "cat", "/sdcard/ainovel-smoke.xml")
-        root = ET.fromstring(data[data.index("<?xml"):])
-        return root, data
+        path = "/sdcard/ainovel-smoke.xml"
+        for attempt in range(3):
+            # Android can report an empty hierarchy while a permission dialog opens.
+            # Clear the previous dump so a retry cannot tap controls from an old screen.
+            self.shell("rm", "-f", path)
+            status = self.shell("uiautomator", "dump", path, timeout=20)
+            try:
+                data = self.adb("exec-out", "cat", path)
+                return ET.fromstring(data), data
+            except (ET.ParseError, subprocess.CalledProcessError) as err:
+                if attempt == 2:
+                    raise RuntimeError(f"Android returned no readable UI hierarchy: {status}") from err
+                time.sleep(0.3)
 
     def capture(self, name):
         self.stage = name
