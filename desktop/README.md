@@ -163,7 +163,7 @@ TXT 支持 UTF-8、UTF-16 BOM 和 GB18030。EPUB 按 spine 顺序读取，HTML/D
 不会执行外部脚本或宏。PDF 原文件保留在项目阅读器数据目录，PDF.js 负责原页绘制与文字提取。
 扫描 PDF 没有 OCR；原页可读，可手动补充章节文字后使用文本相关功能。
 
-PDF.js 6.4.299 与字体、CMap、解码资源离线随包分发。更新时执行
+PDF.js 6.5.438 与字体、CMap、解码资源离线随包分发。更新时执行
 `npm --prefix desktop run vendor:reader`，审查依赖许可证与变更，再执行
 `npm --prefix desktop run vendor:check`。构建前会校验资源哈希。
 
