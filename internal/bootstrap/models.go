@@ -527,15 +527,19 @@ func createRuntimeModel(providerKey, model string, pc ProviderConfig, maxOutput 
 		}
 	}
 
+	sampling, bodyOptions, err := pc.requestParameters()
+	if err != nil {
+		return nil, fmt.Errorf("provider %s: %w", providerKey, err)
+	}
 	m, err := llm.NewModel(providerType, model,
 		llm.WithAPIKey(apiKey),
 		llm.WithBaseURL(pc.BaseURL),
 		llm.WithStreamIdleTimeout(streamIdle),
 		llm.WithProviderExtra(providerExtra),
-		llm.WithExtra(pc.ExtraBody),
+		llm.WithExtra(bodyOptions),
 		// 部分上游的 tool_use id 带 '#'、':' 等字符，发出前的校验只接受 [A-Za-z0-9_-]；
 		// 归一化后 tool_result 按同一映射成对改写。
-		llm.WithClientOptions(litellm.WithMessageRepair(litellm.RepairNormalizeToolUseIDs)),
+		llm.WithClientOptions(litellm.WithDefaults(sampling), litellm.WithMessageRepair(litellm.RepairNormalizeToolUseIDs)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("provider %s (%s): %w: %w", providerKey, providerType, errs.ErrProvider, err)

@@ -66,9 +66,7 @@ type ProviderConfig struct {
 	APIKey  string        `json:"api_key,omitempty"`  // API Key
 	BaseURL string        `json:"base_url,omitempty"` // API Base URL
 	Models  []ModelConfig `json:"models,omitempty"`   // 可选模型列表，供 TUI 切换时展示
-	// ExtraBody 透传给该 provider 每次请求的额外参数（如 temperature/top_p/min_p/
-	// presence_penalty，或厂商特有键如 nvidia 开 think 的 chat_template_kwargs）。
-	// OpenAI 兼容端逐字并入请求体（即 extra_body 约定）；值由用户自负其责。
+	// ExtraBody 设置请求的采样默认值和当前适配器支持的厂商参数。
 	ExtraBody map[string]any `json:"extra_body,omitempty"`
 	// Extra 透传给 provider 级配置（litellm.ProviderConfig.Extra），用于 HTTP
 	// headers、user_agent、anthropic_beta 等客户端/传输层选项。
@@ -383,6 +381,9 @@ func (c *Config) ValidateBase() error {
 }
 
 func validateProviderConfigText(name string, pc ProviderConfig) error {
+	if _, _, err := pc.requestParameters(); err != nil {
+		return fmt.Errorf("provider %q: %w", name, err)
+	}
 	fields := []struct {
 		label string
 		value string
