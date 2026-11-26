@@ -4,7 +4,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const version = "6.4.299";
+const version = require("../package.json").devDependencies["pdfjs-dist"];
 const source = path.resolve(__dirname, "../node_modules/pdfjs-dist");
 const target = path.resolve(__dirname, "../../internal/entry/desktopui/static/vendor/pdfjs");
 const hash = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");

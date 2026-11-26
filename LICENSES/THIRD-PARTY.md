@@ -47,7 +47,7 @@ in the APK. Android SDK/NDK, Gradle and the JDK are build tools, not app payload
 
 ## PDF.js and browser runtime
 
-PDF.js 6.4.299 is Apache-2.0; its font, CMap, ICC and codec notices remain
+PDF.js 6.5.438 is Apache-2.0; its font, CMap, ICC and codec notices remain
 with the vendored assets under `internal/entry/desktopui/static/vendor/pdfjs/`.
 An offline copy of those notices is also provided in [pdfjs/](pdfjs/LICENSE).
 `desktop/scripts/sync-reader-vendor.js` verifies the pinned package and hashes.
