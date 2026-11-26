@@ -174,11 +174,15 @@ func TestManualClearPreservesVersionsAndCanRestoreOffline(t *testing.T) {
 	w := request(s, http.MethodGet, "/api/chapters/1/versions?directory="+url.QueryEscape(s.dir), "")
 	var versions struct {
 		CurrentContentHash string
+		CurrentContent     *string
 		SyncRequired       bool
 		Versions           []domain.ChapterVersion
 	}
 	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &versions) != nil || len(versions.Versions) != 1 || versions.SyncRequired || versions.Versions[0].Active {
 		t.Fatalf("versions of cleared manuscript: %d %s", w.Code, w.Body.String())
+	}
+	if versions.CurrentContent == nil || *versions.CurrentContent != "" {
+		t.Fatal("comparison must distinguish the current empty manuscript from an unavailable baseline")
 	}
 	w = request(s, http.MethodPost, "/api/chapters/1/versions/"+versions.Versions[0].ID+"/apply", mustJSON(t, map[string]string{"directory": s.dir, "expectedContentHash": versions.CurrentContentHash}))
 	if w.Code != http.StatusAccepted {

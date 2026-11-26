@@ -102,18 +102,32 @@ func TestSwitchModelPersistenceFailureKeepsSelection(t *testing.T) {
 	}
 }
 
+type reasoningCaptureModel struct {
+	plainTrackedTestModel
+	level agentcore.ThinkingLevel
+}
+
+func (m *reasoningCaptureModel) Generate(_ context.Context, _ []agentcore.Message, _ []agentcore.ToolSpec, opts ...agentcore.CallOption) (*agentcore.LLMResponse, error) {
+	m.level = agentcore.ResolveCallConfig(opts).ThinkingLevel
+	return &agentcore.LLMResponse{}, nil
+}
+
 func TestSetRoleThinkingPersistenceFailureKeepsIntent(t *testing.T) {
 	for _, role := range []string{"default", "writer"} {
 		t.Run(role, func(t *testing.T) {
 			h, _ := newModelConfigTestHost(t)
-			applied := false
-			h.thinkingApplier = func(string, agentcore.ThinkingLevel) { applied = true }
+			capture := &reasoningCaptureModel{}
+			bound := h.models.ForRole(role).(*bootstrap.SwappableModel)
+			bound.Swap("proxy", "capture", capture, nil)
 			h.configPath = t.TempDir()
 			if err := h.SetRoleThinking(role, "high"); err == nil || !strings.Contains(err.Error(), "保存配置失败") {
 				t.Fatalf("expected persistence error, got %v", err)
 			}
-			if h.CurrentThinking(role) != "" || applied {
-				t.Fatalf("failed save changed thinking: %q applied=%v", h.CurrentThinking(role), applied)
+			if _, err := bound.Generate(t.Context(), nil, nil); err != nil {
+				t.Fatal(err)
+			}
+			if h.CurrentThinking(role) != "" || capture.level != agentcore.ThinkingAuto {
+				t.Fatalf("failed save changed thinking: stored=%q, live=%q", h.CurrentThinking(role), capture.level)
 			}
 			if len(h.events) != 0 {
 				t.Fatal("failed save emitted a success event")

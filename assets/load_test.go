@@ -7,10 +7,8 @@ import (
 	"testing"
 )
 
-// TestBuildWriterPrompt_ByteIdenticalToPreSplit 是文风层验收标准 ①:
-// 不放任何覆盖文件时,组装产物与拆分前的 writer.md 管线逐字节一致。
-// golden 是拆分前 writer.md 的原始快照(testdata/writer-golden.md)。
-func TestBuildWriterPrompt_ByteIdenticalToPreSplit(t *testing.T) {
+// 基线覆盖完整写作协议和文风，变更两者时同步审阅 golden。
+func TestBuildWriterPrompt_MatchesGolden(t *testing.T) {
 	golden, err := os.ReadFile("testdata/writer-golden.md")
 	if err != nil {
 		t.Fatalf("read golden: %v", err)
@@ -18,9 +16,9 @@ func TestBuildWriterPrompt_ByteIdenticalToPreSplit(t *testing.T) {
 	protocol := mustRead(promptsFS, "prompts/writer.md")
 	voice := mustRead(voiceFS, "voice.md")
 
-	// 文件级:占位符回填 == 拆分前原文
+	// 文件级:占位符回填 == 当前完整提示词基线
 	if got := strings.Replace(protocol, voicePlaceholder, strings.TrimSpace(voice), 1); got != string(golden) {
-		t.Fatalf("占位符回填与拆分前不一致:\n--- 长度 golden=%d got=%d", len(golden), len(got))
+		t.Fatalf("占位符回填与完整提示词基线不一致:\n--- 长度 golden=%d got=%d", len(golden), len(got))
 	}
 
 	// 管线级:新组装 == 旧管线(writer.md → simGuidance → style)

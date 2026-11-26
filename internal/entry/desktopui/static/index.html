@@ -306,6 +306,14 @@
               <section class="panel span-two"><div class="panel-heading"><div><span class="kicker">PREMISE</span><h3>故事内核</h3></div></div><div id="plan-premise" class="prose-block empty-state">尚未生成</div></section>
               <section class="panel"><div class="panel-heading"><div><span class="kicker">COMPASS</span><h3>故事指南针</h3></div></div><div id="plan-compass" class="readable-view"></div></section>
               <section class="panel"><div class="panel-heading"><div><span class="kicker">AUDIT</span><h3>基础设定审查</h3></div></div><div id="plan-foundation-audit" class="readable-view"></div></section>
+              <section class="panel span-two" id="plan-threads-panel" hidden>
+                <div class="panel-heading"><h3>跨章伏笔</h3><span class="soft-badge" id="plan-threads-count"></span></div>
+                <div class="plan-thread-tools">
+                  <input id="plan-thread-search" type="search" placeholder="查找伏笔名称" aria-label="查找伏笔名称" />
+                  <label><input id="plan-thread-pending" type="checkbox" />仅看待核对</label>
+                </div>
+                <div class="plan-threads" id="plan-threads" role="region" aria-label="跨章伏笔的铺垫与兑现" tabindex="0"></div>
+              </section>
               <section class="panel span-two"><div class="panel-heading"><div><span class="kicker">DIRECTORY</span><h3>章节目录与详细规划</h3></div><span class="soft-badge" id="outline-count">0 章</span></div><div id="plan-outline" class="plan-outline" role="region" aria-label="可滚动查看全部章节目录与详细规划" tabindex="0"></div></section>
               <section class="panel"><div class="panel-heading"><div><span class="kicker">CHARACTERS</span><h3>角色档案</h3></div></div><div id="plan-characters" class="readable-view"></div></section>
               <section class="panel"><div class="panel-heading"><div><span class="kicker">WORLD RULES</span><h3>世界规则</h3></div></div><div id="plan-world-rules" class="readable-view"></div></section>
@@ -329,11 +337,11 @@
                 <div class="reader-layout chapter-workspace-grid">
               <aside class="panel chapter-sidebar" id="chapter-directory" aria-label="章节目录">
                 <div class="chapter-directory-tools" id="chapter-directory-tools">
-                <div class="panel-heading"><div><span class="kicker">CHAPTERS</span><h3>分卷目录</h3></div><span class="soft-badge" id="chapter-count">0 卷 · 0 章</span></div>
+                <div class="panel-heading"><div><span class="kicker">CHAPTERS</span><h3>分卷目录</h3></div><span class="soft-badge" id="chapter-count" role="status">0 卷 · 0 章</span></div>
                 <div class="chapter-progress-label" id="chapter-progress">已完成 0 / 0 章</div>
                 <div class="chapter-progress-track" aria-hidden="true"><span id="chapter-progress-bar"></span></div>
-                <div class="chapter-tools"><input id="chapter-search" type="search" aria-label="搜索章节、卷或故事弧" placeholder="搜索章名、卷名或序号" /><select id="chapter-filter" aria-label="筛选章节状态"><option value="all">全部章节</option><option value="planned">待写章节</option><option value="written">已有正文</option></select></div>
-                <div class="button-row chapter-selection-tools"><button class="text-button" id="select-rewrite-chapters" type="button">全选（最多 100 章）</button><button class="text-button" id="clear-rewrite-chapters" type="button">取消勾选</button></div>
+                <div class="chapter-tools"><input id="chapter-search" type="search" aria-label="搜索章号、章名、卷、故事弧、事件、场景或伏笔" placeholder="搜索章号、章名或情节" /><select id="chapter-filter" aria-label="筛选章节状态"><option value="all">全部章节</option><option value="planned">待写章节</option><option value="written">已有正文</option></select></div>
+                <div class="button-row chapter-selection-tools"><button class="text-button" id="select-rewrite-chapters" type="button" title="加入匹配的已完成章节，最多共选 100 章">勾选筛选结果</button><button class="text-button" id="clear-rewrite-chapters" type="button">清空勾选</button></div>
                 </div>
                 <div id="chapter-list" class="chapter-list" tabindex="0" role="region" aria-label="分卷章节列表，可独立滚动"><p class="empty-state">规划生成后显示全部章节。</p></div>
               </aside>
@@ -361,7 +369,10 @@
                   <p class="hint">正文编辑针对当前正式版，保存会保留原版。未保存修改在切换章节时保留。</p>
                   <details class="chapter-plan-editor" id="chapter-plan-editor"><summary>编辑章节规划与标题</summary>
                     <p class="hint">卷名会同步到同卷章节；保存规划后须重新审查确认。</p>
-                    <div class="chapter-edit-grid"><label>卷名<input id="edit-volume-title" maxlength="240" /></label><label>章节名<input id="edit-chapter-title" maxlength="240" /></label><label class="wide">章节核心事件<textarea id="edit-core-event" rows="3"></textarea></label><label class="wide">章节悬念<textarea id="edit-chapter-hook" rows="2"></textarea></label><label class="wide">场景安排（每行一个）<textarea id="edit-chapter-scenes" rows="4"></textarea></label></div>
+                    <div class="chapter-edit-grid"><label>卷名<input id="edit-volume-title" maxlength="240" /></label><label>章节名<input id="edit-chapter-title" maxlength="240" /></label><label class="wide">章节核心事件<textarea id="edit-core-event" rows="3"></textarea></label><label class="wide">章节悬念<textarea id="edit-chapter-hook" rows="2"></textarea></label><label class="wide">场景安排（每行一个）<textarea id="edit-chapter-scenes" rows="4"></textarea></label>
+                      <label>本章埋下的伏笔<textarea id="edit-chapter-setups" rows="2" placeholder="每行一个名称，如：缺角的车票"></textarea></label>
+                      <label>本章兑现的伏笔<textarea id="edit-chapter-payoffs" rows="2" placeholder="沿用铺垫时的名称，每行一个"></textarea></label>
+                    </div>
                     <div class="button-row"><button class="secondary-button" id="save-chapter-plan" type="button">保存规划与标题</button></div>
                   </details>
                   <label class="chapter-content-label">当前正式版正文<textarea id="edit-chapter-content" rows="16" spellcheck="false" aria-label="当前正式版正文，可独立滚动"></textarea></label>
@@ -377,7 +388,7 @@
               <label class="rewrite-auto-option"><input id="rewrite-auto-apply" type="checkbox" /><span>重写完成后自动采用新版本，原版仍保留</span></label>
               <div class="button-row"><button class="secondary-button" id="send-chapter-feedback" type="button">按指令重写当前章</button><button class="primary-button" id="accept-chapter" type="button">确认本批次</button></div><p class="form-status" id="chapter-feedback-status" role="status"></p>
             </section>
-                <section class="chapter-versions" aria-label="章节正文版本"><div class="chapter-version-heading"><span class="kicker">CHAPTER VERSIONS</span><button class="text-button" id="reload-chapter-versions" type="button">刷新版本</button></div><div class="chapter-version-list" id="chapter-version-list"></div><p class="hint" id="chapter-version-status">新稿默认保留为候选版本。</p><button class="secondary-button" id="apply-chapter-version" type="button" disabled>采用此版本，覆盖当前正文</button><div class="chapter-sync-required hidden" id="chapter-sync-required"><p>正文已有新修订。同步章节事实后，才能继续生成。</p><button class="secondary-button" id="sync-chapter-revisions" type="button">同步修订并更新章节事实</button></div></section>
+                <section class="chapter-versions" aria-label="章节正文版本"><div class="chapter-version-heading"><span class="kicker">CHAPTER VERSIONS</span><button class="text-button" id="reload-chapter-versions" type="button">刷新版本</button></div><div class="chapter-version-list" id="chapter-version-list"></div><p class="hint" id="chapter-version-status">新稿默认保留为候选版本。</p><button class="text-button" id="compare-chapter-version" type="button" disabled>与正式版对照</button><button class="secondary-button" id="apply-chapter-version" type="button" disabled>采用此版本，覆盖当前正文</button><div class="chapter-sync-required hidden" id="chapter-sync-required"><p>正文已有新修订。同步章节事实后，才能继续生成。</p><button class="secondary-button" id="sync-chapter-revisions" type="button">同步修订并更新章节事实</button></div></section>
                   </aside>
                 </div>
               </div>
@@ -486,6 +497,20 @@
         <p class="form-status" id="create-project-status"></p>
         <div class="dialog-actions"><button class="text-button" type="button" id="cancel-create-project">取消</button><button class="primary-button" id="confirm-create-project" type="submit">创建项目</button></div>
       </form>
+    </dialog>
+
+    <dialog id="chapter-compare-dialog" class="dialog chapter-compare-dialog" aria-labelledby="chapter-compare-title">
+      <div class="dialog-card">
+        <div class="dialog-heading"><h2 id="chapter-compare-title">正文改动</h2><button class="icon-button" id="close-chapter-compare" type="button" aria-label="关闭正文对照" autofocus>×</button></div>
+        <div class="chapter-compare-nav">
+          <p class="hint" id="chapter-compare-position" role="status"></p>
+          <div class="button-row"><button class="secondary-button" id="previous-chapter-change" type="button">上一处</button><button class="secondary-button" id="next-chapter-change" type="button">下一处</button></div>
+        </div>
+        <div class="chapter-compare-panels" id="chapter-compare-panels" role="region" aria-label="两版改动段落" tabindex="0">
+          <section><h3 id="chapter-compare-before-label"></h3><div id="chapter-compare-before"></div></section>
+          <section><h3 id="chapter-compare-after-label"></h3><div id="chapter-compare-after"></div></section>
+        </div>
+      </div>
     </dialog>
 
     <dialog id="manual-chapter-dialog" class="dialog">
@@ -690,6 +715,7 @@
     <script src="/models.js" defer></script>
     <script src="/versions.js" defer></script>
     <script src="/jobs.js" defer></script>
+    <script src="/chapter-comparison.js" defer></script>
     <script src="/chapter-workbench.js" defer></script>
     <script src="/modules/media/media.js" defer></script>
     <script src="/novel-reader.js" defer></script>

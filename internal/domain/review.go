@@ -1,5 +1,7 @@
 package domain
 
+import "slices"
+
 // TimelineEvent 时间线事件。
 type TimelineEvent struct {
 	Chapter    int      `json:"chapter"`
@@ -126,4 +128,15 @@ func (r *ReviewEntry) Dimension(name string) *DimensionScore {
 		}
 	}
 	return nil
+}
+
+// IssuesForChapter returns the requested corrections, including unscoped issues from legacy reviews.
+func (r ReviewEntry) IssuesForChapter(chapter int) []ConsistencyIssue {
+	var issues []ConsistencyIssue
+	for _, issue := range r.Issues {
+		if len(issue.Chapters) == 0 || issue.RequiresChange && slices.Contains(issue.Chapters, chapter) {
+			issues = append(issues, issue)
+		}
+	}
+	return issues
 }

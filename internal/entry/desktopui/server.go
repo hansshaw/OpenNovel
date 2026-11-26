@@ -35,7 +35,6 @@ import (
 	"github.com/hansshaw/OpenNovel/internal/projectjobs"
 	"github.com/hansshaw/OpenNovel/internal/projectversion"
 	"github.com/hansshaw/OpenNovel/internal/store"
-	"github.com/voocel/agentcore"
 )
 
 //go:embed static/*
@@ -860,7 +859,7 @@ func (s *Server) testConfig(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "创建模型失败: "+redactConfig(candidate, err.Error()))
 		return
 	}
-	if _, err = models.Default.Generate(ctx, []agentcore.Message{agentcore.UserMsg("Reply OK.")}, nil); err != nil {
+	if err = host.ProbeModelConnection(ctx, models.Default); err != nil {
 		fail(w, 502, "连接测试失败: "+redactConfig(candidate, err.Error()))
 		return
 	}

@@ -38,6 +38,8 @@ type OutlineEntry struct {
 	CoreEvent   string   `json:"core_event"`
 	Hook        string   `json:"hook"`
 	Scenes      []string `json:"scenes"`
+	Setups      []string `json:"setups,omitempty"`    // 本章计划铺垫的具名线索。
+	Payoffs     []string `json:"payoffs,omitempty"`   // 本章计划兑现的线索，与铺垫使用同一名称。
 	VolumeID    int      `json:"volume_id,omitempty"` // 扁平大纲可显式分卷；分层大纲由父卷派生。
 	VolumeTitle string   `json:"volume_title,omitempty"`
 	ArcID       int      `json:"arc_id,omitempty"` // 卷内弧序号；分层大纲由父弧派生。

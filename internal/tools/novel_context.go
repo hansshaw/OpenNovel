@@ -43,6 +43,7 @@ type References struct {
 type ContextTool struct {
 	store                  *store.Store
 	refs                   References
+	rewriteReferences      map[string]string
 	style                  string
 	styleStats             *StyleStatsIndex
 	styleReferenceProfiles func() ([]domain.NamedStyleReference, error)
@@ -100,6 +101,13 @@ func NewContextTool(
 		tool.styleReferenceProfiles = styleReferences[0]
 	}
 	return tool
+}
+
+// WithRewriteReferences returns a tool that shares the normal chapter memory
+// builder but uses the supplied reference selection for a candidate rewrite.
+func (t ContextTool) WithRewriteReferences(references map[string]string) *ContextTool {
+	t.rewriteReferences = references
+	return &t
 }
 
 func (t *ContextTool) Name() string { return "novel_context" }
@@ -372,7 +380,7 @@ func firstSliceLen(values ...any) int {
 
 // loadFilteredCharacters 按 Tier 和场景出场过滤角色。
 // core/important 始终返回；secondary/decorative 只在当前章节大纲提及时返回。
-func (t *ContextTool) loadFilteredCharacters(result map[string]any, chapter int, reads *contextReads) {
+func (t *ContextTool) loadFilteredCharacters(result map[string]any, focusText string, reads *contextReads) {
 	chars, err := t.store.Characters.Load()
 	if err != nil {
 		reads.require("characters", err)
@@ -382,24 +390,16 @@ func (t *ContextTool) loadFilteredCharacters(result map[string]any, chapter int,
 		return
 	}
 
-	// 获取当前章节大纲的场景描述，用于匹配次要角色
-	entry, err := t.store.Outline.GetChapterOutline(chapter)
-	if err != nil {
-		reads.require("current_chapter_outline", err)
+	if focusText == "" {
 		result["characters"] = chars
 		return
 	}
-	if entry == nil {
-		result["characters"] = chars
-		return
-	}
-	sceneText := strings.Join(entry.Scenes, " ") + " " + entry.CoreEvent + " " + entry.Title
 
 	var filtered []domain.Character
 	for _, c := range chars {
 		switch c.Tier {
 		case "secondary", "decorative":
-			if matchCharacter(sceneText, c) {
+			if matchCharacter(focusText, c) {
 				filtered = append(filtered, c)
 			}
 		default: // core, important, 或未设置
@@ -411,11 +411,11 @@ func (t *ContextTool) loadFilteredCharacters(result map[string]any, chapter int,
 
 // matchCharacter 检查场景文本中是否包含角色的正式名或任一别名。
 func matchCharacter(text string, c domain.Character) bool {
-	if strings.Contains(text, c.Name) {
+	if c.Name != "" && strings.Contains(text, c.Name) {
 		return true
 	}
 	for _, alias := range c.Aliases {
-		if strings.Contains(text, alias) {
+		if alias != "" && strings.Contains(text, alias) {
 			return true
 		}
 	}
@@ -430,29 +430,16 @@ func (t *ContextTool) loadLayeredSummaries(result map[string]any, chapter, summa
 		return
 	}
 
-	// 1. 已完成卷的卷摘要
-	if volSummaries, err := t.store.Summaries.LoadAllVolumeSummaries(); err == nil && len(volSummaries) > 0 {
-		result["volume_summaries"] = volSummaries
-	} else {
-		reads.require("volume_summaries", err)
+	volumes, arcs, err := t.store.Summaries.LoadSummariesBeforeArc(vol, arc)
+	reads.require("layered_summaries", err)
+	if len(volumes) > 0 {
+		result["volume_summaries"] = volumes
+	}
+	if len(arcs) > 0 {
+		result["arc_summaries"] = arcs
 	}
 
-	// 2. 当前卷内已完成弧的弧摘要（不含当前弧）
-	if arcSummaries, err := t.store.Summaries.LoadArcSummaries(vol); err == nil && len(arcSummaries) > 0 {
-		var prior []domain.ArcSummary
-		for _, s := range arcSummaries {
-			if s.Arc < arc {
-				prior = append(prior, s)
-			}
-		}
-		if len(prior) > 0 {
-			result["arc_summaries"] = prior
-		}
-	} else {
-		reads.require("arc_summaries", err)
-	}
-
-	// 3. 当前弧内最近 N 章的章摘要
+	// 最近 N 章的章摘要可以跨过相邻弧的边界。
 	if summaries, err := t.store.Summaries.LoadRecentSummaries(chapter, summaryWindow); err == nil && len(summaries) > 0 {
 		result["recent_summaries"] = summaries
 	} else {
@@ -460,22 +447,11 @@ func (t *ContextTool) loadLayeredSummaries(result map[string]any, chapter, summa
 	}
 }
 
-// loadLayeredCharacters Layered 模式下的角色加载：优先用最近快照，回退到原始设定 + Tier 过滤。
-func (t *ContextTool) loadLayeredCharacters(result map[string]any, chapter int, reads *contextReads) {
-	snapshots, err := t.store.Characters.LoadLatestSnapshots()
-	if err == nil && len(snapshots) > 0 {
-		result["character_snapshots"] = snapshots
-		// 同时保留原始设定中的 core/important 角色（快照可能不含新登场角色）
-		t.loadFilteredCharacters(result, chapter, reads)
-		return
-	}
-	reads.require("character_snapshots", err)
-	// 无快照时回退到原始设定
-	t.loadFilteredCharacters(result, chapter, reads)
-}
-
 // writerReferences 返回写作参考资料。章节 1 返回全量，后续章节裁剪掉不再需要的模板。
 func (t *ContextTool) writerReferences(chapter int) map[string]string {
+	if t.rewriteReferences != nil {
+		return t.rewriteReferences
+	}
 	refs := map[string]string{}
 	add := func(k, v string) {
 		if v != "" {
@@ -660,15 +636,8 @@ func findLastStateChange(changes []domain.StateChange, entity string, currentCha
 func matchOutlineCharacters(text string, chars []domain.Character) []string {
 	var matched []string
 	for _, c := range chars {
-		if strings.Contains(text, c.Name) {
+		if matchCharacter(text, c) {
 			matched = append(matched, c.Name)
-			continue
-		}
-		for _, alias := range c.Aliases {
-			if strings.Contains(text, alias) {
-				matched = append(matched, c.Name)
-				break
-			}
 		}
 	}
 	return matched
@@ -833,9 +802,6 @@ func (t *ContextTool) selectReviewLessons(chapter int, reads *contextReads) []do
 }
 
 func recallFocusTerms(entry *domain.OutlineEntry, plan *domain.ChapterPlan) []string {
-	if entry == nil {
-		return nil
-	}
 	var terms []string
 	add := func(v string) {
 		v = strings.TrimSpace(v)
@@ -844,14 +810,19 @@ func recallFocusTerms(entry *domain.OutlineEntry, plan *domain.ChapterPlan) []st
 		}
 	}
 
-	add(entry.Title)
-	add(entry.CoreEvent)
-	add(entry.Hook)
-	for _, scene := range entry.Scenes {
-		add(scene)
+	if entry != nil {
+		add(entry.Title)
+		add(entry.CoreEvent)
+		add(entry.Hook)
+		terms = append(terms, entry.Scenes...)
+		terms = append(terms, entry.Setups...)
+		terms = append(terms, entry.Payoffs...)
 	}
 	if plan != nil {
 		add(plan.Goal)
+		add(plan.Conflict)
+		terms = append(terms, plan.Contract.RequiredBeats...)
+		terms = append(terms, plan.Contract.ContinuityChecks...)
 		add(plan.Hook)
 		for _, point := range plan.Contract.PayoffPoints {
 			add(point)

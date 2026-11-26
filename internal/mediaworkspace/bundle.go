@@ -27,6 +27,8 @@ type Plan struct {
 	CoreEvent   string   `json:"coreEvent"`
 	Hook        string   `json:"hook"`
 	Scenes      []string `json:"scenes"`
+	Setups      []string `json:"setups,omitempty"`
+	Payoffs     []string `json:"payoffs,omitempty"`
 	Fingerprint string   `json:"fingerprint"`
 }
 

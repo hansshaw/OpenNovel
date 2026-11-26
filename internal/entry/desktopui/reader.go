@@ -171,60 +171,6 @@ func (s *Server) readerText(w http.ResponseWriter, r *http.Request) {
 	reply(w, 200, map[string]any{"title": book.Title, "content": text.String()})
 }
 
-func (s *Server) readerSearch(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	book, ok := s.readerRequestedBook(w, r)
-	if !ok {
-		return
-	}
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	if q == "" || !utf8.ValidString(q) || utf8.RuneCountInString(q) > 100 {
-		fail(w, 400, "请输入 1–100 字的搜索内容")
-		return
-	}
-	matches := []map[string]any{}
-	for _, c := range book.Chapters {
-		if err := r.Context().Err(); err != nil {
-			return
-		}
-		content, err := readReaderChapter(book.Directory, c.Number)
-		if err != nil {
-			s.readerError(w, err)
-			return
-		}
-		// Case folding can change byte widths. Search bytes efficiently, then
-		// translate only matching offsets back to a rune window for the excerpt.
-		runes := []rune(content)
-		folded, query := strings.ToLower(content), strings.ToLower(q)
-		length := utf8.RuneCountInString(query)
-		contentHash := readerContentHash(content)
-		for offset := 0; offset < len(folded); {
-			hit := strings.Index(folded[offset:], query)
-			if hit < 0 {
-				break
-			}
-			hit += offset
-			pos := utf8.RuneCountInString(folded[:hit])
-			start, end := max(0, pos-45), min(len(runes), pos+length+85)
-			excerpt := string(runes[start:end])
-			if start > 0 {
-				excerpt = "…" + excerpt
-			}
-			if end < len(runes) {
-				excerpt += "…"
-			}
-			matches = append(matches, map[string]any{"chapter": c.Number, "title": c.Title, "excerpt": excerpt, "start": pos, "length": length, "contentHash": contentHash})
-			offset = hit + len(query)
-			if len(matches) >= 100 {
-				reply(w, 200, map[string]any{"matches": matches, "truncated": true})
-				return
-			}
-		}
-	}
-	reply(w, 200, map[string]any{"matches": matches, "truncated": false})
-}
-
 func (s *Server) readerProgress(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Directory string `json:"directory"`

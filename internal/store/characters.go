@@ -62,6 +62,11 @@ func (s *CharacterStore) LoadSnapshots(volume, arc int) ([]domain.CharacterSnaps
 
 // LoadLatestSnapshots 加载最近一次角色快照（按卷弧倒序查找）。
 func (s *CharacterStore) LoadLatestSnapshots() ([]domain.CharacterSnapshot, error) {
+	return s.LoadSnapshotsBeforeChapter(0)
+}
+
+// LoadSnapshotsBeforeChapter 返回目标章开始前已结束的一弧的最新快照，0 表示整书最新。
+func (s *CharacterStore) LoadSnapshotsBeforeChapter(chapter int) ([]domain.CharacterSnapshot, error) {
 	// 大纲缺失→(nil,nil) 已在 LoadLayeredOutline 内消化;损坏必须上抛，否则角色快照
 	// 会随分层大纲损坏一起静默消失，写作丢失角色连续性却无人知晓。
 	volumes, err := s.outline.LoadLayeredOutline()
@@ -71,10 +76,18 @@ func (s *CharacterStore) LoadLatestSnapshots() ([]domain.CharacterSnapshot, erro
 	if len(volumes) == 0 {
 		return nil, nil
 	}
+	var target *ArcBoundary
+	if chapter > 0 {
+		target = checkArcBoundary(volumes, chapter)
+	}
 	for vi := len(volumes) - 1; vi >= 0; vi-- {
 		v := volumes[vi]
 		for ai := len(v.Arcs) - 1; ai >= 0; ai-- {
-			snaps, err := s.LoadSnapshots(v.Index, v.Arcs[ai].Index)
+			arc := v.Arcs[ai]
+			if target != nil && (v.Index > target.Volume || v.Index == target.Volume && arc.Index >= target.Arc) {
+				continue
+			}
+			snaps, err := s.LoadSnapshots(v.Index, arc.Index)
 			if err != nil {
 				return nil, err
 			}

@@ -29,6 +29,8 @@ type WorkbenchChapterPlanEdit struct {
 	CoreEvent   *string   `json:"coreEvent,omitempty"`
 	Hook        *string   `json:"hook,omitempty"`
 	Scenes      *[]string `json:"scenes,omitempty"`
+	Setups      *[]string `json:"setups,omitempty"`
+	Payoffs     *[]string `json:"payoffs,omitempty"`
 }
 
 // UpdateWorkbenchChapterPlan saves a user's direct edit to the authoritative
@@ -284,7 +286,7 @@ func (s *Store) snapshotWorkbenchPlanFile(rel string) (outlineMutationSnapshot, 
 }
 
 func normalizedWorkbenchPlanEdit(edit WorkbenchChapterPlanEdit) (WorkbenchChapterPlanEdit, error) {
-	if edit.Title == nil && edit.VolumeTitle == nil && edit.CoreEvent == nil && edit.Hook == nil && edit.Scenes == nil {
+	if edit.Title == nil && edit.VolumeTitle == nil && edit.CoreEvent == nil && edit.Hook == nil && edit.Scenes == nil && edit.Setups == nil && edit.Payoffs == nil {
 		return edit, fmt.Errorf("没有要保存的规划字段: %w", ErrWorkbenchPlanInvalid)
 	}
 	for _, field := range []struct {
@@ -316,6 +318,15 @@ func normalizedWorkbenchPlanEdit(edit WorkbenchChapterPlanEdit) (WorkbenchChapte
 		}
 		edit.Scenes = &scenes
 	}
+	for _, field := range []**[]string{&edit.Setups, &edit.Payoffs} {
+		if *field != nil {
+			markers, err := domain.NormalizeOutlineMarkers(**field)
+			if err != nil {
+				return edit, fmt.Errorf("%w: %v", ErrWorkbenchPlanInvalid, err)
+			}
+			*field = &markers
+		}
+	}
 	return edit, nil
 }
 
@@ -332,6 +343,12 @@ func applyWorkbenchChapterEdit(entry *domain.OutlineEntry, edit WorkbenchChapter
 	}
 	if edit.Scenes != nil {
 		entry.Scenes = *edit.Scenes
+	}
+	if edit.Setups != nil {
+		entry.Setups = *edit.Setups
+	}
+	if edit.Payoffs != nil {
+		entry.Payoffs = *edit.Payoffs
 	}
 	return !reflect.DeepEqual(before, *entry)
 }

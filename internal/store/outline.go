@@ -634,6 +634,7 @@ func renderLayeredOutline(volumes []domain.VolumeOutline) string {
 				if e.Hook != "" {
 					fmt.Fprintf(&b, "**钩子**：%s\n\n", e.Hook)
 				}
+				renderOutlineThreads(&b, e)
 				ch++
 			}
 		}
@@ -659,6 +660,7 @@ func renderOutline(entries []domain.OutlineEntry) string {
 		if e.Hook != "" {
 			fmt.Fprintf(&b, "**钩子**：%s\n\n", e.Hook)
 		}
+		renderOutlineThreads(&b, e)
 		if len(e.Scenes) > 0 {
 			b.WriteString("**场景**：\n")
 			for i, sc := range e.Scenes {
@@ -668,6 +670,15 @@ func renderOutline(entries []domain.OutlineEntry) string {
 		}
 	}
 	return b.String()
+}
+
+func renderOutlineThreads(b *strings.Builder, e domain.OutlineEntry) {
+	if len(e.Setups) > 0 {
+		fmt.Fprintf(b, "**计划铺垫**：%s\n\n", strings.Join(e.Setups, "、"))
+	}
+	if len(e.Payoffs) > 0 {
+		fmt.Fprintf(b, "**计划兑现**：%s\n\n", strings.Join(e.Payoffs, "、"))
+	}
 }
 
 // ── Writer 大纲反馈池 ──
