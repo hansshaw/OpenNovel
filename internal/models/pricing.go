@@ -1,6 +1,7 @@
 package models
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -68,24 +69,26 @@ type modelCache struct {
 	Models    []ModelEntry `json:"models"`
 }
 
-// StartPricingRefresh 起后台 goroutine 刷新模型数据。
-// 先读磁盘缓存（24h TTL），过期或不存在则拉新数据并落盘。
-// cacheDir 为空时跳过磁盘缓存，仍会尝试网络拉取。
-func StartPricingRefresh(registry *ModelRegistry, cacheDir string) {
-	go func() {
-		models := loadCache(cacheDir)
-		if models == nil {
-			fetched, err := fetchModels()
-			if err != nil {
+// RefreshPricing loads cached metadata, or fetches and saves a fresh copy.
+// The caller owns its lifetime, including writes to cacheDir.
+func RefreshPricing(ctx context.Context, registry *ModelRegistry, cacheDir string) {
+	models := loadCache(cacheDir)
+	if models == nil {
+		fetched, err := fetchModels(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
 				slog.Warn("模型元数据刷新失败", "module", "models", "err", err)
-				return
 			}
-			models = fetched
-			saveCache(models, cacheDir)
+			return
 		}
-		registry.MergeModels(models)
-		slog.Info("模型元数据已就绪", "module", "models", "count", len(models))
-	}()
+		if ctx.Err() != nil {
+			return
+		}
+		models = fetched
+		saveCache(models, cacheDir)
+	}
+	registry.MergeModels(models)
+	slog.Info("模型元数据已就绪", "module", "models", "count", len(models))
 }
 
 func loadCache(cacheDir string) []ModelEntry {
@@ -135,9 +138,13 @@ func saveCache(models []ModelEntry, cacheDir string) {
 	}
 }
 
-func fetchModels() ([]ModelEntry, error) {
+func fetchModels(ctx context.Context) ([]ModelEntry, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, openRouterURL, nil)
+	if err != nil {
+		return nil, err
+	}
 	client := &http.Client{Timeout: fetchTimeout}
-	resp, err := client.Get(openRouterURL)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
