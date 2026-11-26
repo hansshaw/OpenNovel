@@ -679,7 +679,7 @@ async function runDesktopChecks(context) {
         "meta/foundation_audit.json": { fingerprint: "readable-test", ready: false, summary: "## 审查结论\n需统一灯塔开放时间。", issues: [{ artifact: "world_rules", description: "开放时间不一致", evidence: "人物档案与世界规则中的时间不同", suggestion: "将开放时间统一为日落之后" }] },
         "characters.json": [{ name: "林舟", role: "主角", description: "守护旧灯塔的年轻人", arc: "从逃避到直面过去", traits: ["谨慎", "重诺"], tier: "core" }],
         "world_rules.json": [{ category: "society", rule: `灯塔只在日落后开放。${hostile}`, boundary: "禁止擅自改变开放时间" }],
-        "layered_outline.json": [{ index: 1, title: "灯塔之卷", theme: "重建信任", final: true, arcs: [{ index: 1, title: "旧信重现", goal: "找到信的主人", chapters: [{ chapter: 1, title: "海风与旧信", core_event: "林舟找到旧信", hook: "信件没有署名", scenes: ["日落前抵达灯塔"] }] }] }],
+        "layered_outline.json": [{ index: 1, title: "灯塔之卷", theme: "重建信任", final: true, arcs: [{ index: 1, title: "旧信重现", goal: "找到信的主人", chapters: [{ chapter: 1, title: "海风与旧信", core_event: "林舟找到旧信", hook: "信件没有署名", scenes: ["日落前抵达灯塔"], setups: ["未署名的信", "熄灭的灯"] }, { chapter: 2, title: "守灯人的笔迹", core_event: "比对笔迹，认出寄信人", payoffs: ["未署名的信"] }] }] }],
         "chapters/01.md": "日落时分，林舟推开灯塔的门，找到一封未寄出的信。",
         "meta/progress.json": { phase: "writing", total_chapters: 1, completed_chapters: [1], current_chapter: 1 },
         "reviews/01.json": { chapter: 1, scope: "chapter", verdict: "polish", summary: "## 章节评审\n人物动机明确，需要统一时间。", issues: [{ type: "连续性", severity: "warning", description: "日落前进入灯塔", evidence: "林舟提前抵达", suggestion: "调整到日落后", chapters: [1], requires_change: true }], dimensions: [{ dimension: "连续性", score: 80, comment: "需完善时间衔接" }] },
@@ -700,7 +700,12 @@ async function runDesktopChecks(context) {
         assert.equal(await run('Boolean(document.querySelector("#plan-world-rules img") || window.__reviewInjected)'), false);
         assert.ok(await run('Boolean(document.querySelector("#plan-foundation-audit [data-field=ready]"))'), "False readiness must not disappear");
         assert.ok(await run('document.getElementById("plan-layered").textContent.includes("灯塔之卷")'));
+        assert.equal(await run('document.getElementById("plan-threads-count").textContent'), "2 条 · 1 条待核对");
+        await run('Array.from(document.querySelectorAll("#plan-threads button")).find(item => item.textContent === "第 2 章").click()');
+        assert.equal(await run('document.getElementById("outline-chapter-2").open && document.activeElement === document.querySelector("#outline-chapter-2 > summary")'), true);
         if (process.env.AINOVEL_APPEARANCE_SCREENSHOTS) {
+          await run('document.getElementById("plan-threads-panel").scrollIntoView({ block: "center" })');
+          await captureReview("outline-threads.png");
           await run('document.getElementById("plan-foundation-audit").scrollIntoView({ block: "center" })');
           await captureReview("readable-planning.png");
         }

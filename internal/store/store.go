@@ -283,6 +283,9 @@ func (s *Store) ReplaceFlatOutline(entries []domain.OutlineEntry) (int, error) {
 		return 0, fmt.Errorf("outline 不能为空: %w", errs.ErrToolPrecondition)
 	}
 	normalized := append([]domain.OutlineEntry(nil), entries...)
+	if err := normalizeOutlineMarkers(normalized, 1); err != nil {
+		return 0, err
+	}
 	for i := range normalized {
 		normalized[i].Chapter = i + 1
 		if err := validateReplacementOutlineEntry(normalized[i], i+1); err != nil {
@@ -529,6 +532,9 @@ func validateReplacementVolumes(volumes []domain.VolumeOutline) error {
 		}
 		for ai := range volume.Arcs {
 			arc := &volume.Arcs[ai]
+			if err := normalizeOutlineMarkers(arc.Chapters, 1); err != nil {
+				return fmt.Errorf("第 %d 卷第 %d 弧：%w", vi+1, ai+1, err)
+			}
 			if strings.TrimSpace(arc.Title) == "" {
 				return fmt.Errorf("第 %d 卷第 %d 弧缺少 title: %w", vi+1, ai+1, errs.ErrToolPrecondition)
 			}
@@ -545,6 +551,22 @@ func validateReplacementVolumes(volumes []domain.VolumeOutline) error {
 			}
 			arc.EstimatedChapters = 0
 		}
+	}
+	return nil
+}
+
+func normalizeOutlineMarkers(chapters []domain.OutlineEntry, start int) error {
+	for i := range chapters {
+		entry := &chapters[i]
+		setups, err := domain.NormalizeOutlineMarkers(entry.Setups)
+		if err != nil {
+			return fmt.Errorf("第 %d 章 setups：%w: %w", start+i, err, errs.ErrToolArgs)
+		}
+		payoffs, err := domain.NormalizeOutlineMarkers(entry.Payoffs)
+		if err != nil {
+			return fmt.Errorf("第 %d 章 payoffs：%w: %w", start+i, err, errs.ErrToolArgs)
+		}
+		entry.Setups, entry.Payoffs = setups, payoffs
 	}
 	return nil
 }
@@ -568,6 +590,9 @@ func validateReplacementOutlineEntry(entry domain.OutlineEntry, chapter int) err
 // ExpandNextArc 展开当前已完成弧之后的下一弧（Outline + Progress 联动）。
 // 目标由已落盘进度和大纲共同确定，模型只负责创作内容。
 func (s *Store) ExpandNextArc(expansion domain.ArcExpansion) (ArcPosition, error) {
+	if err := normalizeOutlineMarkers(expansion.Chapters, 1); err != nil {
+		return ArcPosition{}, err
+	}
 	s.crossMu.Lock()
 	defer s.crossMu.Unlock()
 
@@ -637,6 +662,11 @@ func (s *Store) ExpandNextArc(expansion domain.ArcExpansion) (ArcPosition, error
 
 // AppendVolume 追加新卷到分层大纲末尾（Outline + Progress 联动）。
 func (s *Store) AppendVolume(vol domain.VolumeOutline) (domain.VolumeOutline, error) {
+	for i := range vol.Arcs {
+		if err := normalizeOutlineMarkers(vol.Arcs[i].Chapters, 1); err != nil {
+			return domain.VolumeOutline{}, fmt.Errorf("第 %d 弧：%w", i+1, err)
+		}
+	}
 	s.crossMu.Lock()
 	defer s.crossMu.Unlock()
 
@@ -703,6 +733,9 @@ func (s *Store) AppendVolume(vol domain.VolumeOutline) (domain.VolumeOutline, er
 func (s *Store) ReviseOutline(fromChapter int, replacement []domain.OutlineEntry) (int, error) {
 	if fromChapter <= 0 {
 		return 0, fmt.Errorf("from_chapter must be > 0: %w", errs.ErrToolArgs)
+	}
+	if err := normalizeOutlineMarkers(replacement, fromChapter); err != nil {
+		return 0, err
 	}
 
 	s.crossMu.Lock()

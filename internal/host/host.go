@@ -42,25 +42,24 @@ import (
 // Host 是运行时外壳:生命周期/干预入口/事件投影/模型管理。
 // 调度与执行在 engine(确定性循环);语义裁定在 arbiter(LLM-as-function)。
 type Host struct {
-	cfg             bootstrap.Config
-	bundle          assets.Bundle
-	store           *storepkg.Store
-	bookLease       *bookLease
-	styleStats      *tools.StyleStatsIndex
-	models          *bootstrap.ModelSet
-	engine          *engine
-	thinkingApplier agents.ApplyThinking // /model 调推理强度时联动各 Worker
-	writerRestore   *ctxpack.WriterRestorePack
-	userRules       *userrules.Service
-	observer        *observer
-	usage           *UsageTracker
-	usageCancel     context.CancelFunc  // 停掉 autoSaveLoop 并触发最后一次 flush
-	budget          *BudgetSentinel     // 预算政策；未启用为 nil（方法 nil 安全）
-	gate            *ChapterAdvanceGate // 章节许可与一次性暂停的统一政策组件
-	notifier        *notify.Notifier    // 无人值守告警；未启用为 nil（Send nil 安全）
-	configPath      string              // 配置写盘目标：/config、/model 就近写当前生效的那份（项目级存在则写它，否则全局）
-	logCleanup      func()
-	fileLogErr      error
+	cfg           bootstrap.Config
+	bundle        assets.Bundle
+	store         *storepkg.Store
+	bookLease     *bookLease
+	styleStats    *tools.StyleStatsIndex
+	models        *bootstrap.ModelSet
+	engine        *engine
+	writerRestore *ctxpack.WriterRestorePack
+	userRules     *userrules.Service
+	observer      *observer
+	usage         *UsageTracker
+	usageCancel   context.CancelFunc  // 停掉 autoSaveLoop 并触发最后一次 flush
+	budget        *BudgetSentinel     // 预算政策；未启用为 nil（方法 nil 安全）
+	gate          *ChapterAdvanceGate // 章节许可与一次性暂停的统一政策组件
+	notifier      *notify.Notifier    // 无人值守告警；未启用为 nil（Send nil 安全）
+	configPath    string              // 配置写盘目标：/config、/model 就近写当前生效的那份（项目级存在则写它，否则全局）
+	logCleanup    func()
+	fileLogErr    error
 
 	events   chan Event
 	streamCh chan string
@@ -205,7 +204,7 @@ func New(cfg bootstrap.Config, bundle assets.Bundle, options ...NewOption) (*Hos
 	// onGuardBlock 前置声明:h 构造后才能挂事件浮出闭包。
 	var onGuardBlock func(agent, reason string, consecutive int32)
 	styleStats := tools.NewStyleStatsIndex(store)
-	workers, restore, applyThinking := agents.BuildWorkers(cfg, store, styleStats, models, bundle, usage.Record,
+	workers, restore := agents.BuildWorkers(cfg, store, styleStats, models, bundle, usage.Record,
 		func(agent, reason string, consecutive int32) {
 			if onGuardBlock != nil {
 				onGuardBlock(agent, reason, consecutive)
@@ -218,24 +217,23 @@ func New(cfg bootstrap.Config, bundle assets.Bundle, options ...NewOption) (*Hos
 	}
 
 	h := &Host{
-		cfg:             cfg,
-		bundle:          bundle,
-		store:           store,
-		bookLease:       bookLease,
-		styleStats:      styleStats,
-		models:          models,
-		thinkingApplier: applyThinking,
-		writerRestore:   restore,
-		userRules:       userrules.NewService(store, models.Default, ruleOptions),
-		usage:           usage,
-		usageCancel:     usageCancel,
-		configPath:      configPath,
-		logCleanup:      logCleanup,
-		fileLogErr:      fileLogErr,
-		events:          make(chan Event, 100),
-		streamCh:        make(chan string, 256),
-		done:            make(chan struct{}, 4),
-		lifecycle:       lifecycleIdle,
+		cfg:           cfg,
+		bundle:        bundle,
+		store:         store,
+		bookLease:     bookLease,
+		styleStats:    styleStats,
+		models:        models,
+		writerRestore: restore,
+		userRules:     userrules.NewService(store, models.Default, ruleOptions),
+		usage:         usage,
+		usageCancel:   usageCancel,
+		configPath:    configPath,
+		logCleanup:    logCleanup,
+		fileLogErr:    fileLogErr,
+		events:        make(chan Event, 100),
+		streamCh:      make(chan string, 256),
+		done:          make(chan struct{}, 4),
+		lifecycle:     lifecycleIdle,
 	}
 	h.runCtx, h.runCancel = context.WithCancel(context.Background())
 	h.observer = newObserver(store, h.models, h.emitEvent, h.emitDelta, h.emitClear)
@@ -1498,7 +1496,6 @@ func (h *Host) SwitchModel(role, provider, model string) error {
 	// 候选客户端构建和持久化全部成功后才提交，失败时保留原有选择。
 	h.models.ApplyPrepared(prepared)
 	h.cfg = candidate
-	h.applyThinkingLocked(role)
 	// 切到未登记模型时打一行 warn，提示用户走了 128k 兜底——长篇容易被提前压缩。
 	logRole := role
 	if logRole == "" {
@@ -1519,10 +1516,6 @@ func (h *Host) SwitchModel(role, provider, model string) error {
 	return nil
 }
 
-// concreteThinkingRoles 是可应用推理强度的具体角色（与 agents.ApplyThinking 路由一致）。
-// 调 default 时按各角色 ResolveReasoningEffort 逐个重新应用。
-var concreteThinkingRoles = []string{"architect", "writer", "editor"}
-
 // CurrentThinking 返回某角色当前生效的推理强度原始串（供 /model 面板同步当前值）。
 func (h *Host) CurrentThinking(role string) string {
 	h.mu.Lock()
@@ -1534,46 +1527,22 @@ func (h *Host) AvailableThinking(role string) []agentcore.ThinkingLevel {
 	h.mu.Lock()
 	model := h.models.ForRole(strings.ToLower(strings.TrimSpace(role)))
 	h.mu.Unlock()
-	return agents.AvailableThinkingForModel(model)
+	return bootstrap.AvailableThinkingForModel(model)
 }
 
-// resolveThinkingForRoleLocked 计算某角色实际生效的推理强度：取其原始意图
-// （ResolveReasoningEffort：角色级 → 顶层默认），再按该角色当前模型的能力钳制。
-// 钳制只发生在这条“生效路径”上，不回写配置——存储始终保留用户的原始意图。
-func (h *Host) resolveThinkingForRoleLocked(role string) agentcore.ThinkingLevel {
-	parsed, _ := agents.ParseThinkingLevel(h.cfg.ResolveReasoningEffort(role))
-	resolved, _ := agents.ResolveThinkingForModel(h.models.ForRole(role), parsed)
-	return resolved
-}
-
-// applyThinkingLocked 把生效强度下发给 live agent；每个角色各按自己的模型钳制。
-func (h *Host) applyThinkingLocked(role string) {
-	if h.thinkingApplier == nil {
-		return
-	}
-	role = strings.ToLower(strings.TrimSpace(role))
-	if role == "" || role == "default" {
-		for _, r := range concreteThinkingRoles {
-			h.thinkingApplier(r, h.resolveThinkingForRoleLocked(r))
-		}
-		return
-	}
-	h.thinkingApplier(role, h.resolveThinkingForRoleLocked(role))
-}
-
-// SetRoleThinking 设置某角色（或 default）的推理强度：校验→持久化→联动 live agent→事件。
+// SetRoleThinking 设置某角色（或 default）的推理强度：校验→持久化→更新模型绑定→事件。
 // 镜像 SwitchModel 的结构；与模型选择正交，可单独调整。level 为空 = 不覆盖（继承）。
 func (h *Host) SetRoleThinking(role, level string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	parsed, err := agents.ParseThinkingLevel(level)
+	parsed, err := bootstrap.ParseThinkingLevel(level)
 	if err != nil {
 		return err
 	}
 	role = strings.ToLower(strings.TrimSpace(role))
 	candidate := bootstrap.CloneConfig(h.cfg)
-	// 存储保留原始意图：直接持久化用户选定的强度，钳制只在下发(applyThinkingLocked)时按模型能力发生。
+	// 存储保留原始意图：直接持久化用户选定的强度，发送请求时根据实际模型能力决定生效值。
 	if role == "" || role == "default" {
 		candidate.ReasoningEffort = string(parsed)
 	} else {
@@ -1593,10 +1562,7 @@ func (h *Host) SetRoleThinking(role, level string) error {
 		}
 	}
 	h.cfg = candidate
-
-	// 联动 live：具体角色直接应用；default 则遍历各具体角色按 ResolveReasoningEffort 重新应用
-	// （已被角色级覆盖的保留自身，未覆盖的吃上新默认）。
-	h.applyThinkingLocked(role)
+	h.models.SetReasoningEffort(role, string(parsed))
 
 	logRole := role
 	if logRole == "" {
@@ -1862,8 +1828,8 @@ func (h *Host) importModelRuntime(role string, model agentcore.ChatModel) imp.Mo
 		rt.MaxOutputTokens = entry.MaxTokens
 	}
 	// thinking：按角色 reasoning effort 与模型能力 resolve；不支持则不发（与 arbiter 同策略）。
-	if level, err := agents.ParseThinkingLevel(h.cfg.ResolveReasoningEffort(role)); err == nil {
-		if resolved, ok := agents.ResolveThinkingForModel(model, level); ok {
+	if level, err := bootstrap.ParseThinkingLevel(h.cfg.ResolveReasoningEffort(role)); err == nil {
+		if resolved, ok := bootstrap.ResolveThinkingForModel(model, level); ok {
 			rt.Thinking = resolved
 		}
 	}

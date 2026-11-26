@@ -6,12 +6,37 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/hansshaw/OpenNovel/internal/domain"
+	"github.com/hansshaw/OpenNovel/internal/errs"
 	"github.com/hansshaw/OpenNovel/internal/store"
 )
+
+func TestPlanChapterRejectsIncompleteOrContradictoryContractBeforeWriting(t *testing.T) {
+	st := completeShortFoundation(t)
+	if err := st.Progress.UpdatePhase(domain.PhaseWriting); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewPlanChapterTool(st)
+	for _, args := range []string{
+		`{"chapter":1,"title":" ","goal":"出城","conflict":"夜禁","hook":"敲门"}`,
+		`{"chapter":1,"title":"钟楼","goal":"出城","hook":"敲门"}`,
+		`{"chapter":1,"title":"钟楼","goal":"出城","conflict":"夜禁","hook":"敲门","required_beats":["交出钥匙"],"forbidden_moves":[" 交出钥匙 "]}`,
+	} {
+		if _, err := tool.Execute(context.Background(), json.RawMessage(args)); !errors.Is(err, errs.ErrToolArgs) {
+			t.Fatalf("invalid plan accepted: %v", err)
+		}
+	}
+	if plan, err := st.Drafts.LoadChapterPlan(1); err != nil || plan != nil {
+		t.Fatalf("created a plan from invalid input: %+v, %v", plan, err)
+	}
+	if p, err := st.Progress.Load(); err != nil || p.InProgressChapter != 0 {
+		t.Fatalf("invalid plan started writing: %+v, %v", p, err)
+	}
+}
 
 func planArgs(chapter int) json.RawMessage {
 	b, _ := json.Marshal(map[string]any{

@@ -305,3 +305,47 @@ func TestInvalidLibraryDraftNeverChangesSelection(t *testing.T) {
 		}
 	}
 }
+
+func TestConnectionProbeUsesSavedSamplingAndDefaultReasoning(t *testing.T) {
+	for _, effort := range []string{"off", ""} {
+		t.Run("effort="+effort, func(t *testing.T) {
+			calls := make(chan map[string]any, 1)
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method == http.MethodGet {
+					_, _ = w.Write([]byte(`{"data":[{"id":"deepseek-v4-flash"}]}`))
+					return
+				}
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Error(err)
+				}
+				calls <- payload
+				_, _ = w.Write([]byte(`{"model":"deepseek-v4-flash","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}]}`))
+			}))
+			defer upstream.Close()
+			s := newTestServer(t, true)
+			s.baseCfg.ReasoningEffort = effort
+			s.baseCfg.Providers["proxy"] = bootstrap.ProviderConfig{Type: "deepseek", APIKey: "local-stub", ExtraBody: map[string]any{"temperature": 0.0}}
+			body := mustJSON(t, map[string]any{"name": "proxy", "type": "deepseek", "model": "deepseek-v4-flash", "base_url": upstream.URL})
+			if w := request(s, "POST", "/api/config", body); w.Code != http.StatusOK {
+				t.Fatal(w.Body.String())
+			}
+			w := request(s, "POST", "/api/config/test", body)
+			if effort == "" {
+				if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), "thinking mode") || len(calls) != 0 {
+					t.Fatalf("default thinking restriction lost: %d %s", w.Code, w.Body.String())
+				}
+				return
+			}
+			if w.Code != http.StatusOK || len(calls) != 1 {
+				t.Fatalf("probe: %d %s", w.Code, w.Body.String())
+			}
+			got := <-calls
+			thinking, _ := got["thinking"].(map[string]any)
+			if got["model"] != "deepseek-v4-flash" || got["temperature"] != 0.0 || thinking["type"] != "disabled" {
+				t.Fatalf("selected model probe: %+v", got)
+			}
+		})
+	}
+}

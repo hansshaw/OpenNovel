@@ -22,6 +22,8 @@ type chapterWorkbenchItem struct {
 	CoreEvent   string   `json:"core_event,omitempty"`
 	Hook        string   `json:"hook,omitempty"`
 	Scenes      []string `json:"scenes,omitempty"`
+	Setups      []string `json:"setups,omitempty"`
+	Payoffs     []string `json:"payoffs,omitempty"`
 	VolumeID    int      `json:"volume_id"`
 	VolumeTitle string   `json:"volume_title"`
 	ArcID       int      `json:"arc_id,omitempty"`
@@ -45,6 +47,7 @@ func chapterWorkbenchItems(st *store.Store, outline []domain.OutlineEntry, progr
 			item.Title = entry.Title
 		}
 		item.CoreEvent, item.Hook, item.Scenes = entry.CoreEvent, entry.Hook, entry.Scenes
+		item.Setups, item.Payoffs = entry.Setups, entry.Payoffs
 		if entry.VolumeID > 0 {
 			item.VolumeID, item.VolumeTitle = entry.VolumeID, entry.VolumeTitle
 		}

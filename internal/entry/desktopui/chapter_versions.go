@@ -69,6 +69,11 @@ func (s *Server) chapterVersions(w http.ResponseWriter, r *http.Request) {
 		}
 		hash := domain.ChapterContentSHA256(content)
 		response = map[string]any{"directory": s.dir, "chapter": chapter, "currentContentHash": hash, "versions": versions, "syncRequired": !manual && (baseline == nil || baseline.ContentSHA256 != hash)}
+		// A cleared manual chapter (or an external edit during a run) can
+		// have historical versions without a matching archived manuscript.
+		if len(versions) > 0 && !slices.ContainsFunc(versions, func(v domain.ChapterVersion) bool { return v.Active }) {
+			response["currentContent"] = content
+		}
 		return nil
 	}
 	if archiveOriginal {

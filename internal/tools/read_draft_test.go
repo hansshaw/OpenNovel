@@ -6,6 +6,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/hansshaw/OpenNovel/internal/domain"
@@ -112,8 +113,15 @@ func TestReadChapterDialogue(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveCharacters: %v", err)
 	}
-	if err := store.Drafts.SaveFinalChapter(1, "张三站起身来。\u201c我不同意这个方案，\u201d张三冷冷地说。"); err != nil {
-		t.Fatalf("SaveFinalChapter: %v", err)
+	if err := store.Progress.Save(&domain.Progress{CompletedChapters: []int{1}}); err != nil {
+		t.Fatal(err)
+	}
+	prose := `张三站起身来。“我不同意这个方案，”张三冷冷地说。
+李四说：“张三也得留在码头。”老张问：「那谁去见船主？」
+老张："The boat leaves at dawn."
+老张低声道：『雾散以前别开门。』`
+	if err := store.Drafts.SaveFinalChapter(1, prose); err != nil {
+		t.Fatal(err)
 	}
 
 	tool := NewReadChapterTool(store)
@@ -132,6 +140,10 @@ func TestReadChapterDialogue(t *testing.T) {
 	}
 	if payload.Character != "张三" {
 		t.Fatalf("expected character 张三, got %s", payload.Character)
+	}
+	want := []string{"张三: “我不同意这个方案，”", "张三: 「那谁去见船主？」", `张三: "The boat leaves at dawn."`, "张三: 『雾散以前别开门。』"}
+	if !slices.Equal(payload.Samples, want) {
+		t.Fatalf("dialogue samples = %q, want %q", payload.Samples, want)
 	}
 }
 

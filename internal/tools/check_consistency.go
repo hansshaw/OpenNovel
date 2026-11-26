@@ -10,6 +10,7 @@ import (
 
 	"github.com/hansshaw/OpenNovel/internal/domain"
 	"github.com/hansshaw/OpenNovel/internal/errs"
+	"github.com/hansshaw/OpenNovel/internal/revision"
 	"github.com/hansshaw/OpenNovel/internal/store"
 	"github.com/voocel/agentcore/schema"
 )
@@ -76,15 +77,30 @@ func (t *CheckConsistencyTool) Execute(_ context.Context, args json.RawMessage) 
 	} else {
 		warn("world_rules", err)
 	}
-	if foreshadow, err := t.store.World.LoadActiveForeshadow(); len(foreshadow) > 0 {
-		result["foreshadow_ledger"] = foreshadow
-	} else {
-		warn("foreshadow_ledger", err)
+	progress, progressErr := t.store.Progress.Load()
+	warn("progress", progressErr)
+	if progressErr == nil {
+		opening, err := revision.LoadChapterOpening(t.store, progress, a.Chapter)
+		warn("chapter_opening", err)
+		if len(opening.Foreshadow) > 0 {
+			result["foreshadow_ledger"] = opening.Foreshadow
+		}
+		if len(opening.Relationships) > 0 {
+			result["relationships"] = opening.Relationships
+		}
 	}
-	if relationships, err := t.store.World.LoadRelationships(); len(relationships) > 0 {
-		result["relationships"] = relationships
-	} else {
-		warn("relationships", err)
+	if plan, err := t.store.Drafts.LoadChapterPlan(a.Chapter); err != nil {
+		warn("chapter_plan", err)
+	} else if plan != nil {
+		result["chapter_plan"] = plan
+	}
+	if outline, err := t.store.Outline.LoadOutlineView(); err != nil {
+		warn("outline", err)
+	} else if entry := findOutlineEntry(outline, a.Chapter); entry != nil {
+		result["current_chapter_outline"] = entry
+		if sources := priorPayoffSetups(outline, a.Chapter); len(sources) > 0 {
+			result["payoff_setup_chapters"] = sources
+		}
 	}
 	if chars, err := t.store.Characters.Load(); len(chars) > 0 {
 		aliasMap := make(map[string]string)

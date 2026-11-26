@@ -31,6 +31,8 @@ type chapterEditView struct {
 	CoreEvent           string         `json:"coreEvent"`
 	Hook                string         `json:"hook"`
 	Scenes              []string       `json:"scenes"`
+	Setups              []string       `json:"setups,omitempty"`
+	Payoffs             []string       `json:"payoffs,omitempty"`
 	Content             string         `json:"content"`
 	HasContent          bool           `json:"hasContent"`
 	HasPlan             bool           `json:"hasPlan"`
@@ -56,6 +58,7 @@ func readChapterEdit(st *store.Store, chapter int) (chapterEditView, error) {
 			view.Title, view.VolumeTitle = entry.Title, entry.VolumeTitle
 			view.CoreEvent, view.Hook = entry.CoreEvent, entry.Hook
 			view.Scenes = append([]string{}, entry.Scenes...)
+			view.Setups, view.Payoffs = entry.Setups, entry.Payoffs
 			view.HasPlan = true
 			break
 		}
@@ -132,6 +135,7 @@ func (s *Server) chapterEditor(w http.ResponseWriter, r *http.Request) {
 		Title, VolumeTitle          string
 		CoreEvent, Hook, Content    string
 		Scenes                      []string
+		Setups, Payoffs             *[]string
 	}
 	if r.Method == http.MethodPost {
 		if !readJSONLimit(w, r, &req, maxWorkbenchBodyBytes+(1<<20)) {
@@ -238,6 +242,18 @@ func (s *Server) chapterEditor(w http.ResponseWriter, r *http.Request) {
 			var body *string
 			if req.SavePlan {
 				entry.Title, entry.VolumeTitle, entry.CoreEvent, entry.Hook, entry.Scenes = req.Title, req.VolumeTitle, req.CoreEvent, req.Hook, req.Scenes
+				if req.Setups != nil {
+					entry.Setups, readErr = domain.NormalizeOutlineMarkers(*req.Setups)
+					if readErr != nil {
+						return errors.Join(store.ErrWorkbenchPlanInvalid, readErr)
+					}
+				}
+				if req.Payoffs != nil {
+					entry.Payoffs, readErr = domain.NormalizeOutlineMarkers(*req.Payoffs)
+					if readErr != nil {
+						return errors.Join(store.ErrWorkbenchPlanInvalid, readErr)
+					}
+				}
 			} else {
 				body = &req.Content
 			}
@@ -258,6 +274,12 @@ func (s *Server) chapterEditor(w http.ResponseWriter, r *http.Request) {
 			}
 			if !slices.Equal(req.Scenes, current.Scenes) {
 				edit.Scenes = &req.Scenes
+			}
+			if req.Setups != nil && !slices.Equal(*req.Setups, current.Setups) {
+				edit.Setups = req.Setups
+			}
+			if req.Payoffs != nil && !slices.Equal(*req.Payoffs, current.Payoffs) {
+				edit.Payoffs = req.Payoffs
 			}
 			_, err = st.UpdateWorkbenchChapterPlan(chapter, edit, current.PlanningFingerprint)
 		} else {

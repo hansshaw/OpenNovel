@@ -137,6 +137,8 @@
     readingRequest: 0,
     stateRequest: 0,
     chapterFilter: "all",
+    chapterMatches: [],
+    closedChapterVolumes: new Set(),
     reading: null,
     view: "overview",
     epoch: 0,
@@ -153,6 +155,7 @@
     settingsRevision: 0,
     settingsBusy: false,
     planOutlineInitialized: false,
+    threadLimit: 40,
     activityTab: "events",
   };
 
@@ -162,6 +165,7 @@
   let modelRequestsPanel = null;
   let styleReferencesPanel = null;
   let chapterWorkbench = null;
+  let chapterDirectorySignature = "";
   let mediaPanel = null;
   let novelReader = null;
   let readerDistillPending = false;
@@ -450,10 +454,15 @@
       state.readingRequest++;
       state.loading.chapter = false;
       state.chapterFilter = "all";
+      state.chapterMatches = [];
+      state.closedChapterVolumes.clear();
       $("#chapter-search").value = "";
       $("#chapter-filter").value = "all";
       state.planning = null;
       state.planOutlineInitialized = false;
+      state.threadLimit = 40;
+      $("#plan-thread-search").value = "";
+      $("#plan-thread-pending").checked = false;
       state.audit = null;
       state.profileDirectory = "";
       state.cocreate = null;
@@ -1823,6 +1832,7 @@
       ? "第三阶段 · 调整目录、分卷和后续规划后，需重新审查并确认。已完成正文保留原样；如需改写，请在章节工作台选中一章并提供具体指令。"
       : "第二阶段 · 目录、分卷和设定均可按意见修改并覆盖。第一阶段共创记录、创作原则和用户约束会保留，修改后重新审查并由你确认。";
     renderPlanOutline(outline, layered);
+    renderOutlineThreads(planning.outlineThreads || []);
     syncDisabledControls();
   }
 
@@ -1834,6 +1844,61 @@
     const list = el("ul");
     for (const warning of warnings) list.append(el("li", "", warning));
     container.append(list);
+  }
+
+  function renderOutlineThreads(threads) {
+    const container = $("#plan-threads");
+    container.replaceChildren();
+    $("#plan-threads-panel").hidden = !threads.length;
+    if (!threads.length) return;
+    const states = { paired: "已安排兑现", missing_setup: "缺少铺垫", missing_payoff: "待安排兑现",
+      payoff_before_setup: "兑现早于铺垫", setup_after_payoff: "末次铺垫尚未兑现" };
+    const pending = threads.filter(thread => thread.status !== "paired");
+    $("#plan-threads-count").textContent = `${threads.length} 条 · ${pending.length} 条待核对`;
+    const find = $("#plan-thread-search").value.trim().toLocaleLowerCase();
+    const ordered = $("#plan-thread-pending").checked ? pending : [...pending, ...threads.filter(thread => thread.status === "paired")];
+    const visible = ordered.filter(thread => thread.name.toLocaleLowerCase().includes(find));
+    if (!visible.length) container.append(el("p", "empty-state", "当前筛选条件下没有伏笔。"));
+    for (const thread of visible.slice(0, state.threadLimit)) {
+      const row = el("div", "plan-thread");
+      const heading = el("div", "plan-thread-heading");
+      heading.append(el("strong", "", thread.name), el("span", `soft-badge ${thread.status === "paired" ? "approved" : "pending"}`, states[thread.status] || "待核对"));
+      row.append(heading);
+      for (const [label, numbers] of [["铺垫", thread.setups], ["兑现", thread.payoffs]]) {
+        const refs = el("div", "plan-thread-refs");
+        refs.append(el("span", "muted", label));
+        for (const number of numbers || []) {
+          const jump = button(`第 ${number} 章`, "text-button", () => {
+            const target = document.getElementById(`outline-chapter-${number}`);
+            if (!target) return;
+            for (let parent = target; parent; parent = parent.parentElement) {
+              if (parent.tagName === "DETAILS") parent.open = true;
+            }
+            target.querySelector("summary").focus({ preventScroll: true });
+            target.scrollIntoView({ block: "center" });
+          });
+          jump.setAttribute("aria-label", `查看「${thread.name}」的${label}，第 ${number} 章`);
+          refs.append(jump);
+        }
+        if (!numbers?.length) refs.append(el("span", "muted", "尚未安排"));
+        row.append(refs);
+      }
+      container.append(row);
+    }
+    if (visible.length > state.threadLimit) {
+      const more = button(`继续查看（还有 ${visible.length - state.threadLimit} 条）`, "secondary-button", () => {
+        const previous = state.threadLimit;
+        state.threadLimit += 40;
+        renderOutlineThreads(threads);
+        container.children[previous]?.querySelector("button")?.focus();
+      });
+      container.append(more);
+    }
+  }
+
+  function appendChapterThreads(details, item) {
+    if (item.setups?.length) details.append(el("p", "outline-event", `本章铺垫：${item.setups.join("、")}`));
+    if (item.payoffs?.length) details.append(el("p", "outline-event", `本章兑现：${item.payoffs.join("、")}`));
   }
 
   function renderPlanOutline(outline, layered = []) {
@@ -1855,12 +1920,14 @@
       section.append(heading);
       for (const item of group.chapters) {
         const details = el("details", "outline-detail");
+        details.id = `outline-chapter-${item.number}`;
         details.dataset.chapter = String(item.number);
         details.open = expanded.has(String(item.number));
         details.append(el("summary", "", `第 ${item.number || "?"} 章 · ${item.title || "待定标题"}`));
         if (item.arcTitle) details.append(el("span", "chapter-arc", item.arcTitle));
         if (item.coreEvent) details.append(el("p", "outline-event", item.coreEvent));
         if (item.hook) details.append(el("p", "outline-event", `章节悬念：${item.hook}`));
+        appendChapterThreads(details, item);
         if (item.scenes?.length) {
           const scenes = el("ul", "outline-scenes");
           for (const scene of item.scenes) scenes.append(sceneItem(scene));
@@ -2042,6 +2109,7 @@
     for (const item of arc.chapters) {
       const chapterKey = `chapter:${volume.index}:${arc.index}:${item.number}`;
       const chapterDetails = el("details", "outline-detail");
+      chapterDetails.id = `outline-chapter-${item.number}`;
       chapterDetails.dataset.planKey = chapterKey;
       chapterDetails.open = isOpen(chapterKey, false);
       chapterDetails.append(
@@ -2059,6 +2127,7 @@
           el("p", "outline-event", `章节悬念：${item.hook}`),
         );
       }
+      appendChapterThreads(chapterDetails, item);
       if (item.scenes?.length) {
         const scenes = el("ul", "outline-scenes");
         for (const scene of item.scenes) {
@@ -2147,52 +2216,73 @@
     return chapter.source === "draft" ? "草稿" : chapter.hasDraft ? "已有终稿 · 重写中" : "已完成";
   }
 
-  function renderChapters() {
-    const chapters = workbenchChapters();
-    const container = $("#chapter-list");
-    const manual = state.data?.project?.mode === "manual";
-    $("#view-chapters .batch-controls").classList.toggle("hidden", manual);
-    $("#view-chapters [data-go-view=planning]").classList.toggle("hidden", manual);
-    $("#view-chapters .chapter-selection-tools").classList.toggle("hidden", manual);
-    $("#chapter-edit-tab").textContent = manual ? "编辑正文与标题" : "编辑正文与规划";
-    $("#chapter-plan-editor .hint").textContent = manual ? "手动项目可直接修改标题，不需要规划审核。" : "卷名会同步到同卷章节；保存规划后须重新审查确认。";
-    const directoryScroll = container.scrollTop;
-    const closed = new Set($$(".chapter-volume", container).filter((node) => !node.open).map((node) => node.dataset.volume));
-    let selected = selectedChapterEntry();
-    if (!selected && chapters.length) {
-      selected = [...chapters].reverse().find(chapterHasContent) || chapters[0];
-      state.selectedChapter = selected.number;
-      state.selectedSource = selected.source || "";
+  function matchChapter(chapter, terms, chapterNumber) {
+    if (!terms.length) return "";
+    if (chapterNumber !== null) return chapter.number === chapterNumber ? "" : null;
+    const fields = [
+      ["", [chapter.title, chapter.volumeTitle, chapter.arcTitle, `第${chapter.number}章`].join(" ")],
+      ["事件", chapter.coreEvent], ["悬念", chapter.hook],
+      ...(chapter.scenes || []).map(text => ["场景", text]),
+      ...(chapter.setups || []).map(text => ["埋设", text]),
+      ...(chapter.payoffs || []).map(text => ["回收", text]),
+    ].filter(([, value]) => typeof value === "string" && value);
+    const normalized = fields.map(([, value]) => value.normalize("NFKC").toLowerCase());
+    if (!terms.every(term => normalized.some(value => value.includes(term)))) return null;
+    // Explain results found inside a plan. A long scene may contain the match near its end.
+    for (const term of terms) {
+      if (normalized[0].includes(term)) continue;
+      const index = normalized.findIndex(value => value.includes(term));
+      const [label, value] = fields[index];
+      const start = Math.max(0, normalized[index].indexOf(term) - 12);
+      const end = start + 50;
+      return `${label} · ${start ? "…" : ""}${value.slice(start, end)}${value.length > end ? "…" : ""}`;
     }
-    const sourceChanged = selected && state.selectedSource !== (selected.source || "");
-    if (sourceChanged) state.selectedSource = selected.source || "";
-    const query = $("#chapter-search").value.trim().toLowerCase();
-    const filtered = chapters.filter((chapter) => {
-      const statusMatch = state.chapterFilter === "all" ||
-        (state.chapterFilter === "planned" ? !chapterHasContent(chapter) : chapterHasContent(chapter));
-      return statusMatch && `${chapter.number} ${chapter.title} ${chapter.volumeTitle} ${chapter.arcTitle}`.toLowerCase().includes(query);
-    });
+    return "";
+  }
+
+  function renderChapterDirectory(chapters, filtered, snippets, query, manual) {
+    // Preserve focus, scroll and native disclosure controls during background
+    // polling. Rebuild only when something shown in this directory changed.
+    const signature = JSON.stringify([state.data?.directory, manual, chapters.length, query,
+      state.chapterFilter, state.selectedChapter, state.selectedSource, filtered.map(chapter => [
+        chapter.number, chapter.title, chapter.volumeId, chapter.volumeTitle, chapter.arcTitle, chapter.words,
+        chapter.source, chapterStatus(chapter), chapterCanRewrite(chapter), snippets.get(chapter.number),
+      ])]);
+    if (signature === chapterDirectorySignature) return;
+    chapterDirectorySignature = signature;
+    const container = $("#chapter-list");
+    const directoryScroll = container.scrollTop;
+    const searching = Boolean(query || state.chapterFilter !== "all");
     container.replaceChildren();
-    const completed = chapters.filter(chapterCanRewrite).length;
-    $("#chapter-count").textContent = `${groupChapters(chapters).length} 卷 · ${chapters.length} 章`;
-    $("#chapter-progress").textContent = `已完成 ${completed} / ${chapters.length} 章`;
-    $("#chapter-progress-bar").style.width = `${chapters.length ? Math.round(completed / chapters.length * 100) : 0}%`;
-    $("#workbench-plan-state").textContent = manual ? "手动创作 · 直接编辑" : state.data?.workflow?.approved ? "当前规划已确认" : "规划待审查 / 确认";
-    $("#workbench-plan-state").className = `soft-badge ${state.data?.workflow?.approved ? "approved" : "pending"}`;
-    if (!filtered.length) container.append(el("p", "empty-state", chapters.length ? "没有符合筛选条件的章节。" : manual ? "点击上方“新建章节”，开始写下第一章。" : "规划生成后，分卷与全部章节会显示在这里。"));
+    if (!filtered.length) {
+      container.append(el("p", "empty-state", chapters.length ? "没有符合筛选条件的章节。" : manual ? "点击上方“新建章节”，开始写下第一章。" : "规划生成后，分卷与全部章节会显示在这里。"));
+      if (searching) container.append(button("清除搜索和筛选", "text-button", () => {
+        $("#chapter-search").value = "";
+        $("#chapter-filter").value = state.chapterFilter = "all";
+        renderChapters();
+        $("#chapter-search").focus();
+      }));
+    }
     for (const group of groupChapters(filtered)) {
       const section = el("details", "chapter-volume");
       section.dataset.volume = group.key;
-      section.open = !closed.has(group.key);
+      section.open = searching || !state.closedChapterVolumes.has(group.key);
+      section.addEventListener("toggle", () => {
+        if (searching || !section.isConnected) return;
+        if (section.open) state.closedChapterVolumes.delete(group.key);
+        else state.closedChapterVolumes.add(group.key);
+      });
       const heading = el("summary", "volume-heading");
       heading.append(el("strong", "", group.label), el("small", "", `${group.chapters.length} 章`));
       section.append(heading);
       for (const chapter of group.chapters) {
         const active = chapter.number === Number(state.selectedChapter) && (chapter.source || "") === (state.selectedSource || "");
         const item = button("", `chapter-item ${active ? "active" : ""}`, () => {
+          const focused = document.activeElement === item;
           const changed = chapter.number !== Number(state.selectedChapter) || (chapter.source || "") !== (state.selectedSource || "");
           const reading = readChapter(chapter.number, chapter.source || "", { resetScroll: changed });
           renderChapters();
+          if (focused && changed) $("#chapter-list .chapter-item.active")?.focus({ preventScroll: true });
           return reading;
         });
         item.setAttribute("aria-current", active ? "true" : "false");
@@ -2202,11 +2292,52 @@
         meta.append(el("span", `chapter-status ${chapterHasContent(chapter) ? "written" : "planned"}`, chapterStatus(chapter)),
           el("small", "", chapterHasContent(chapter) ? `${number(chapter.words)} 字` : chapter.arcTitle || "查看章节规划"));
         item.append(meta);
+        if (snippets.has(chapter.number)) item.append(el("small", "chapter-match-snippet", snippets.get(chapter.number)));
         section.append(chapterWorkbench ? chapterWorkbench.chapterRow(chapter, item) : item);
       }
       container.append(section);
     }
     container.scrollTop = directoryScroll;
+  }
+
+  function renderChapters() {
+    const chapters = workbenchChapters();
+    const manual = state.data?.project?.mode === "manual";
+    $("#view-chapters .batch-controls").classList.toggle("hidden", manual);
+    $("#view-chapters [data-go-view=planning]").classList.toggle("hidden", manual);
+    $("#view-chapters .chapter-selection-tools").classList.toggle("hidden", manual);
+    $("#chapter-edit-tab").textContent = manual ? "编辑正文与标题" : "编辑正文与规划";
+    $("#chapter-plan-editor .hint").textContent = manual ? "手动项目可直接修改标题，不需要规划审核。" : "卷名会同步到同卷章节；保存规划后须重新审查确认。";
+    let selected = selectedChapterEntry();
+    if (!selected && chapters.length) {
+      selected = [...chapters].reverse().find(chapterHasContent) || chapters[0];
+      state.selectedChapter = selected.number;
+      state.selectedSource = selected.source || "";
+    }
+    const sourceChanged = selected && state.selectedSource !== (selected.source || "");
+    if (sourceChanged) state.selectedSource = selected.source || "";
+    const query = $("#chapter-search").value.trim().normalize("NFKC").toLowerCase();
+    const terms = query ? query.split(/\s+/) : [];
+    const numbered = query.match(/^(?:第\s*)?(\d+)(?:\s*章)?$/);
+    const chapterNumber = numbered ? Number(numbered[1]) : null;
+    const searching = Boolean(query || state.chapterFilter !== "all");
+    const snippets = new Map();
+    const filtered = chapters.filter((chapter) => {
+      const statusMatch = state.chapterFilter === "all" ||
+        (state.chapterFilter === "planned" ? !chapterHasContent(chapter) : chapterHasContent(chapter));
+      if (!statusMatch) return false;
+      const snippet = matchChapter(chapter, terms, chapterNumber);
+      if (snippet) snippets.set(chapter.number, snippet);
+      return snippet !== null;
+    });
+    state.chapterMatches = filtered;
+    const completed = chapters.filter(chapterCanRewrite).length;
+    $("#chapter-count").textContent = searching ? `匹配 ${filtered.length} / ${chapters.length} 章` : `${groupChapters(chapters).length} 卷 · ${chapters.length} 章`;
+    $("#chapter-progress").textContent = `已完成 ${completed} / ${chapters.length} 章`;
+    $("#chapter-progress-bar").style.width = `${chapters.length ? Math.round(completed / chapters.length * 100) : 0}%`;
+    $("#workbench-plan-state").textContent = manual ? "手动创作 · 直接编辑" : state.data?.workflow?.approved ? "当前规划已确认" : "规划待审查 / 确认";
+    $("#workbench-plan-state").className = `soft-badge ${state.data?.workflow?.approved ? "approved" : "pending"}`;
+    renderChapterDirectory(chapters, filtered, snippets, query, manual);
     if (selected) {
       $("#chapter-feedback-title").textContent = "按指令重写与批次验收";
       $("#send-chapter-feedback").textContent = `按指令重写第 ${selected.number} 章`;
@@ -2244,6 +2375,7 @@
     const label = el("div", "planned-chapter-label", "章节规划 · 正文尚未生成");
     content.append(label, el("p", "", chapter.coreEvent || "本章详细事件将在规划中完善。"));
     if (chapter.hook) content.append(el("h3", "", "章节悬念"), el("p", "", chapter.hook));
+    appendChapterThreads(content, chapter);
     if (chapter.scenes?.length) {
       content.append(el("h3", "", "场景安排"));
       const scenes = el("ol", "planned-scenes");
@@ -3392,6 +3524,12 @@
     $("#refresh-style").addEventListener("click", loadStyle);
     $("#run-style-analysis").addEventListener("click", runStyleAnalysis);
     $("#reload-planning").addEventListener("click", loadPlanning);
+    for (const [selector, event] of [["#plan-thread-search", "input"], ["#plan-thread-pending", "change"]]) {
+      $(selector).addEventListener(event, () => {
+        state.threadLimit = 40;
+        renderOutlineThreads(state.planning?.outlineThreads || []);
+      });
+    }
     $("#revise-plan").addEventListener("click", revisePlan);
     $("#approve-plan").addEventListener("click", approvePlan);
     $("#repair-plan").addEventListener("click", repairPlan);
@@ -3529,8 +3667,8 @@
     chapterWorkbench = window.NovelChapterWorkbench.create({
       api, el, button,
       getContext: () => ({ directory: state.data?.directory || "", chapter: Number(state.selectedChapter || 0), epoch: state.epoch, manual: state.data?.project?.mode === "manual", approved: Boolean(state.data?.workflow?.approved), fingerprint: state.data?.workflow?.fingerprint || "", busy: Boolean(state.data?.busy || state.data?.stopping || state.data?.snapshot?.isRunning) }),
-      getChapters: workbenchChapters, canRewrite: chapterCanRewrite, isBusy, setBusy,
-      refresh: refreshAll, repaint: renderChapters, syncRevisions: () => runAction({ action: "sync" }), toast,
+      getChapters: workbenchChapters, getFilteredChapters: () => state.chapterMatches, canRewrite: chapterCanRewrite, isBusy, setBusy,
+      refresh: refreshAll, repaint: () => { chapterDirectorySignature = ""; renderChapters(); }, syncRevisions: () => runAction({ action: "sync" }), toast,
     });
     chapterWorkbench.bindEvents();
     styleReferencesPanel = createStyleReferencesPanel({

@@ -26,11 +26,11 @@
         { "name": "google/gemini-3.0-flash", "context_window": 200000, "max_output_tokens": 32768 },
         { "name": "google/gemini-3.1-pro", "context_window": 1000000, "max_output_tokens": 65536 }
       ],
-      // 可选。透传给该 provider 每次请求的额外参数（采样参数如 temperature/top_p/
-      // min_p，或厂商特有键如 nvidia 开 think 的 chat_template_kwargs），逐字并入请求体。
-      // 仅对 OpenAI 兼容类 provider 生效（openrouter/deepseek/qwen/glm/grok/ollama…）；
-      // type:"openai" 会按官方参数白名单过滤。值由用户自负其责。
-      "extra_body": { "temperature": 0.8, "min_p": 0.05 },
+      // 可选。temperature（0–2）与 top_p（0–1）设置该 provider 的采样默认值。
+      // 模型和协议有各自限制，例如 Anthropic 只接受其中一项；留空则使用服务端默认。
+      // OpenRouter 等兼容适配器还可传上游支持的 min_p、chat_template_kwargs 等字段。
+      // type:"openai" 的 Chat / Responses 只接受该适配器声明的扩展参数，例如 metadata。
+      "extra_body": { "temperature": 0.8, "top_p": 0.95 },
       // 可选。provider 级配置，透传给 HTTP 客户端层（不是请求体），用于需要
       // 自定义 User-Agent / headers / anthropic_beta 的代理。
       "extra": {

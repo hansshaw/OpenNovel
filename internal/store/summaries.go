@@ -168,6 +168,31 @@ func (s *SummaryStore) LoadAllVolumeSummaries() ([]domain.VolumeSummary, error) 
 	return result, nil
 }
 
+// LoadSummariesBeforeArc 读取进入指定弧前的卷摘要，以及当前卷内早于该弧的摘要。
+func (s *SummaryStore) LoadSummariesBeforeArc(volume, arc int) ([]domain.VolumeSummary, []domain.ArcSummary, error) {
+	var volumes []domain.VolumeSummary
+	for v := 1; v < volume; v++ {
+		summary, err := s.LoadVolumeSummary(v)
+		if err != nil {
+			return nil, nil, err
+		}
+		if summary != nil {
+			volumes = append(volumes, *summary)
+		}
+	}
+	var arcs []domain.ArcSummary
+	for a := 1; a < arc; a++ {
+		summary, err := s.LoadArcSummary(volume, a)
+		if err != nil {
+			return nil, nil, err
+		}
+		if summary != nil {
+			arcs = append(arcs, *summary)
+		}
+	}
+	return volumes, arcs, nil
+}
+
 // FindCharacterAppearances 批量查找多个角色的最后出场章节号。
 func (s *SummaryStore) FindCharacterAppearances(names []string, endChapter, recentWindow int) (map[string]int, error) {
 	result := make(map[string]int, len(names))
