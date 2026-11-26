@@ -229,9 +229,10 @@ func TestTimeline_LoadRecent(t *testing.T) {
 	for _, tt := range []struct {
 		current, window, want int
 	}{
-		{7, 10, 4}, // 全部
-		{7, 3, 2},  // ch5,ch7
-		{5, 2, 3},  // ch3,ch5,ch7
+		{8, 10, 4}, // 续写时包括最近完成的第 7 章
+		{7, 3, 1},  // ch5
+		{5, 2, 1},  // 回到第 5 章只能看到 ch3
+		{1, 3, 0},  // 第一章之前没有历史
 	} {
 		got, _ := s.World.LoadRecentTimeline(tt.current, tt.window)
 		if len(got) != tt.want {

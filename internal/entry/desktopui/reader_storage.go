@@ -321,6 +321,10 @@ func readReaderChapter(directory string, chapter int) (string, error) {
 		return "", err
 	}
 	defer root.Close()
+	return readReaderChapterAt(root, chapter)
+}
+
+func readReaderChapterAt(root *os.Root, chapter int) (string, error) {
 	b, err := readerRead(root, filepath.Join("chapters", fmt.Sprintf("%02d.md", chapter)), novelreader.MaxChapterBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil

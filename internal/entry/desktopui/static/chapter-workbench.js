@@ -2,15 +2,17 @@
   "use strict";
 
   window.NovelChapterWorkbench = {
-    create({ api, el, button, getContext, getChapters, canRewrite, isBusy, setBusy, refresh, repaint, syncRevisions, toast }) {
+    create({ api, el, button, getContext, getChapters, getFilteredChapters = getChapters, canRewrite, isBusy, setBusy, refresh, repaint, syncRevisions, toast }) {
       const $ = (id) => document.getElementById(id);
+      const comparison = window.NovelChapterComparison.create();
       const drafts = new Map(), selections = new Map(), projectSync = new Map();
       const androidDrafts = Boolean(window.ainovelAndroid), pendingBackups = new Map();
       let backupTimer = 0, backupFailed = false;
-      const fields = { title: "edit-chapter-title", volumeTitle: "edit-volume-title", coreEvent: "edit-core-event", hook: "edit-chapter-hook", scenes: "edit-chapter-scenes", content: "edit-chapter-content" };
+      const fields = { title: "edit-chapter-title", volumeTitle: "edit-volume-title", coreEvent: "edit-core-event", hook: "edit-chapter-hook", scenes: "edit-chapter-scenes", setups: "edit-chapter-setups", payoffs: "edit-chapter-payoffs", content: "edit-chapter-content" };
       let key = "", activeEpoch = -1, generation = 0, current = null, versions = [], selectedVersion = "", currentHash = "";
       let loading = false, loadingVersions = false, saving = false, syncRequired = false, lastVersionsAt = 0;
       let observedSource = "", observedBusy = false, editorNeedsRefresh = false;
+      let original = null;
       let editorMode = false;
       const contextKey = (context) => `${context.directory || ""}\n${context.chapter || 0}`;
       const valid = (context, token) => token === generation && key === contextKey(context) && contextKey(context) === contextKey(getContext()) && context.epoch === getContext().epoch;
@@ -19,16 +21,22 @@
         if (!selections.has(directory)) selections.set(directory, { chapters: new Set(), instruction: $("chapter-feedback").value || "", autoApply: false });
         return selections.get(directory);
       };
-      const planValue = (value) => JSON.stringify([value.title, value.volumeTitle, value.coreEvent, value.hook, value.scenes]);
+      const listFields = ["scenes", "setups", "payoffs"];
+      const planValue = (value) => JSON.stringify([value.title, value.volumeTitle, value.coreEvent, value.hook, value.scenes, value.setups || [], value.payoffs || []]);
       const dirtyPlan = () => Boolean(current?.loaded && planValue(current.value) !== planValue(current.base));
       const dirtyContent = () => Boolean(current?.loaded && current.value.content !== current.base.content);
-      const selectedNumbers = () => [...selection().chapters].filter((number) => canRewrite(getChapters().find((chapter) => chapter.number === number))).sort((a, b) => a - b);
+      const selectedNumbers = () => {
+        const chosen = selection().chapters;
+        if (!chosen.size) return [];
+        return getChapters().filter(chapter => chosen.has(chapter.number) && canRewrite(chapter)).map(chapter => chapter.number).sort((a, b) => a - b);
+      };
       const message = (value) => { $("chapter-editor-status").textContent = value + (backupFailed ? " 手机草稿备份未成功，请及时点击保存正文。" : ""); };
 
       const backupKey = (draftKey) => "ainovel.android.chapter-draft.v1:" + encodeURIComponent(draftKey);
       const validBackup = (record) => record?.version === 1 && typeof record.revision === "string" && record.value &&
         ["title", "volumeTitle", "coreEvent", "hook", "content"].every((field) => typeof record.value[field] === "string") &&
-        Array.isArray(record.value.scenes) && record.value.scenes.every((scene) => typeof scene === "string");
+        Array.isArray(record.value.scenes) && listFields.every((field) => record.value[field] === undefined ||
+          (Array.isArray(record.value[field]) && record.value[field].every((item) => typeof item === "string")));
       const draftDirty = (draft) => draft?.loaded && (planValue(draft.value) !== planValue(draft.base) || draft.value.content !== draft.base.content);
 
       function readBackup(draftKey) {
@@ -67,7 +75,7 @@
         if (!current?.recovery || saving || isBusy()) return;
         if (restore && draftDirty(current) && !window.confirm("载入手机草稿会替换编辑器内当前未保存的修改，作品的正式内容不会改变。继续载入？")) return;
         if (!restore && !window.confirm("删除这份旧手机草稿备份？已保存的作品和当前编辑器内容不会改变。")) return;
-        if (restore) current.value = structuredClone(current.recovery.value);
+        if (restore) current.value = { ...structuredClone(current.base), ...structuredClone(current.recovery.value) };
         current.recovery = null;
         fillEditor();
         backupDraft();
@@ -76,8 +84,13 @@
         syncDisabled();
       }
 
+      function editorValues(result) {
+        return { title: result.title || "", volumeTitle: result.volumeTitle || "", coreEvent: result.coreEvent || "", hook: result.hook || "",
+          scenes: result.scenes || [], setups: result.setups || [], payoffs: result.payoffs || [], content: result.content || "" };
+      }
+
       function fillEditor() {
-        for (const [field, id] of Object.entries(fields)) $(id).value = field === "scenes" ? (current?.value.scenes || []).join("\n") : current?.value[field] || "";
+        for (const [field, id] of Object.entries(fields)) $(id).value = listFields.includes(field) ? (current?.value[field] || []).join("\n") : current?.value[field] || "";
       }
 
       function syncDisabled() {
@@ -89,18 +102,21 @@
         $("reset-chapter-edits").disabled = !loaded || busy || (!dirtyPlan() && !dirtyContent());
         $("reload-chapter-versions").disabled = !context.chapter || loadingVersions;
         $("apply-chapter-version").disabled = busy || !selectedVersion || versions.find((version) => version.id === selectedVersion)?.active !== false;
+        $("compare-chapter-version").disabled = !original || !versions.some(version => version.id === selectedVersion && !version.active);
         $("sync-chapter-revisions").disabled = busy || !syncRequired;
         $("chapter-draft-recovery").classList.toggle("hidden", !current?.recovery);
         $("restore-local-chapter-draft").disabled = busy || !current?.recovery;
         $("discard-local-chapter-draft").disabled = busy || !current?.recovery;
         $("chapter-sync-required").classList.toggle("hidden", !syncRequired);
         const numbers = selectedNumbers();
-        $("rewrite-selected-count").textContent = numbers.length ? `已勾选 ${numbers.length} 章：${numbers.join("、")}` : "勾选目录中的已完成章节，可一次重写多章；未勾选时使用当前章。";
+        const matches = getFilteredChapters().filter(canRewrite);
+        const hidden = numbers.length - matches.filter(chapter => selection().chapters.has(chapter.number)).length;
+        $("rewrite-selected-count").textContent = numbers.length ? `已勾选 ${numbers.length} 章${hidden > 0 ? `（含筛选外 ${hidden} 章）` : ""}：${numbers.join("、")}` : "勾选目录中的已完成章节，可一次重写多章；未勾选时使用当前章。";
         const fallback = canRewrite(getChapters().find((chapter) => chapter.number === context.chapter));
         $("send-chapter-feedback").disabled = busy || !context.approved || (!numbers.length && !fallback);
         $("chapter-feedback").disabled = saving;
         $("rewrite-auto-apply").disabled = busy;
-        $("select-rewrite-chapters").disabled = !getChapters().some(canRewrite);
+        $("select-rewrite-chapters").disabled = numbers.length >= 100 || !matches.some(chapter => !selection().chapters.has(chapter.number));
         $("clear-rewrite-chapters").disabled = !selection().chapters.size;
         $("send-chapter-feedback").textContent = numbers.length ? `按指令重写所选 ${numbers.length} 章` : "按指令重写当前章";
       }
@@ -139,6 +155,7 @@
 
       function selectVersion(id) {
         const changed = selectedVersion !== id;
+        if (changed) comparison.close();
         selectedVersion = id;
         setEditorMode(false);
         renderVersions();
@@ -192,6 +209,8 @@
         const context = { ...getContext() }, token = generation;
         if (!context.directory || !context.chapter || loadingVersions || (!force && Date.now() - lastVersionsAt < 3000)) return;
         if (!context.manual && !canRewrite(getChapters().find((chapter) => chapter.number === context.chapter))) {
+          comparison.close();
+          original = null;
           versions = [];
           selectedVersion = currentHash = "";
           syncRequired = Boolean(projectSync.get(context.directory));
@@ -207,6 +226,8 @@
           if (result.directory !== context.directory || Number(result.chapter) !== context.chapter) throw new Error("返回的章节不匹配，请刷新重试。");
           versions = Array.isArray(result.versions) ? result.versions : [];
           const changedContent = currentHash && currentHash !== result.currentContentHash;
+          original = versions.find(version => version.active) || (typeof result.currentContent === "string" ? { content: result.currentContent } : null);
+          if (changedContent || !original || !versions.some(version => version.id === selectedVersion && !version.active)) comparison.close();
           currentHash = result.currentContentHash || "";
           if (result.syncRequired) projectSync.set(context.directory, true);
           syncRequired = Boolean(projectSync.get(context.directory));
@@ -232,12 +253,12 @@
           if (!valid(context, token)) return;
           if (result.directory !== context.directory || Number(result.chapter) !== context.chapter) throw new Error("返回的章节不匹配，请刷新重试。");
           if (current?.loaded && (dirtyPlan() || dirtyContent())) return;
-          const value = { title: result.title || "", volumeTitle: result.volumeTitle || "", coreEvent: result.coreEvent || "", hook: result.hook || "", scenes: Array.isArray(result.scenes) ? result.scenes : [], content: result.content || "" };
+          const value = editorValues(result);
           current = { loaded: true, value: structuredClone(value), base: structuredClone(value), revision: result.revision, hasContent: Boolean(result.hasContent), manual: Boolean(result.manual), hasPlan: result.hasPlan !== false };
           const backup = readBackup(key);
           if (backup) {
             if (backup.revision === result.revision) {
-              current.value = structuredClone(backup.value);
+              current.value = { ...current.value, ...structuredClone(backup.value) };
               current.recovery = validBackup(backup.recovery) ? backup.recovery : null;
             } else current.recovery = backup;
           }
@@ -260,6 +281,8 @@
           key = nextKey;
           activeEpoch = context.epoch;
           generation++;
+          comparison.close();
+          original = null;
           loading = loadingVersions = saving = false;
           versions = [];
           selectedVersion = currentHash = "";
@@ -280,7 +303,7 @@
           renderVersions();
         }
         const chapter = getChapters().find((item) => item.number === context.chapter);
-        const source = JSON.stringify([chapter?.title, chapter?.volumeTitle, chapter?.coreEvent, chapter?.hook, chapter?.scenes, chapter?.words, canRewrite(chapter), context.approved, context.fingerprint]);
+        const source = JSON.stringify([chapter?.title, chapter?.volumeTitle, chapter?.coreEvent, chapter?.hook, chapter?.scenes, chapter?.setups, chapter?.payoffs, chapter?.words, canRewrite(chapter), context.approved, context.fingerprint]);
         if (source !== observedSource || observedBusy && !context.busy) { editorNeedsRefresh = true; lastVersionsAt = 0; }
         observedSource = source;
         observedBusy = Boolean(context.busy);
@@ -327,7 +350,7 @@
             ...submitted,
           } });
           if (result.directory !== context.directory || Number(result.chapter) !== context.chapter) throw new Error("保存返回的章节不匹配，请刷新后核对。");
-          const saved = { title: result.title || "", volumeTitle: result.volumeTitle || "", coreEvent: result.coreEvent || "", hook: result.hook || "", scenes: result.scenes || [], content: result.content || "" };
+          const saved = editorValues(result);
           // A user can read another chapter while this request is pending.
           // Acknowledge the captured draft even if its form is no longer shown,
           // so returning to it does not reuse an already-consumed revision.
@@ -336,7 +359,7 @@
           draft.manual = Boolean(result.manual);
           draft.hasPlan = result.hasPlan !== false;
           draft.base = structuredClone(saved);
-          for (const field of savePlan ? ["title", "volumeTitle", "coreEvent", "hook", "scenes"] : ["content"]) {
+          for (const field of savePlan ? ["title", "volumeTitle", "coreEvent", "hook", ...listFields] : ["content"]) {
             if (JSON.stringify(draft.value[field]) === JSON.stringify(submitted[field])) draft.value[field] = saved[field];
           }
           backupDraft(contextKey(context), draft);
@@ -421,7 +444,7 @@
         for (const region of ["directory", "reader", "editor", "feedback"]) $("chapter-jump-" + region).addEventListener("click", () => jumpToRegion(region));
         for (const [field, id] of Object.entries(fields)) $(id).addEventListener("input", () => {
           if (!current?.loaded || saving) return;
-          current.value[field] = field === "scenes" ? $(id).value.split("\n").map((line) => line.trim()).filter(Boolean) : $(id).value;
+          current.value[field] = listFields.includes(field) ? $(id).value.split("\n").map((line) => line.trim()).filter(Boolean) : $(id).value;
           backupDraft();
           message(androidDrafts ? "有未保存修改，手机会备份草稿；正式写入作品请点击保存。" : "有未保存修改；切换章节或项目时会在此工作台保留草稿。");
           syncDisabled();
@@ -439,9 +462,21 @@
           await loadEditor({ force: true });
         });
         $("reload-chapter-versions").addEventListener("click", () => loadVersions({ force: true }));
+        $("compare-chapter-version").addEventListener("click", () => {
+          const version = versions.find(item => item.id === selectedVersion && !item.active);
+          if (original && version) comparison.open(getContext().chapter, original, version);
+        });
         $("apply-chapter-version").addEventListener("click", applyVersion);
         $("sync-chapter-revisions").addEventListener("click", syncRevisions);
-        $("select-rewrite-chapters").addEventListener("click", () => { for (const chapter of getChapters().filter(canRewrite)) { if (selection().chapters.size >= 100) break; selection().chapters.add(chapter.number); } repaint(); });
+        $("select-rewrite-chapters").addEventListener("click", () => {
+          const chosen = new Set(selectedNumbers());
+          for (const chapter of getFilteredChapters().filter(canRewrite)) {
+            if (chosen.size >= 100) break;
+            chosen.add(chapter.number);
+          }
+          selection().chapters = chosen;
+          repaint();
+        });
         $("clear-rewrite-chapters").addEventListener("click", () => { selection().chapters.clear(); repaint(); });
         $("chapter-feedback").addEventListener("input", () => { selection().instruction = $("chapter-feedback").value; });
         $("rewrite-auto-apply").addEventListener("change", () => { selection().autoApply = Boolean($("rewrite-auto-apply").checked); });

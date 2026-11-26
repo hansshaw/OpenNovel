@@ -30,7 +30,7 @@ func (t *ReviseOutlineTool) Label() string { return "修订大纲" }
 func (t *ReviseOutlineTool) Description() string {
 	return "修订尚未发生的大纲。从 from_chapter 起，用 replacement 完整替换后续计划：" +
 		"扁平大纲替换全书尾段，分层大纲替换该章所在弧的尾段；已完成或正在写作的章节不可移动。" +
-		"需要保留的后续章节必须一并放入 replacement。"
+		"需要保留的后续章节及其 setups/payoffs 线索标记必须一并放入 replacement；没有标记时填空数组。"
 }
 
 func (t *ReviseOutlineTool) ReadOnly(json.RawMessage) bool        { return false }
@@ -45,6 +45,8 @@ func (t *ReviseOutlineTool) Schema() map[string]any {
 		schema.Property("core_event", schema.String("本章核心事件")).Required(),
 		schema.Property("hook", schema.String("章末钩子")).Required(),
 		schema.Property("scenes", schema.Array("计划场景；无则为空数组", schema.String(""))).Required(),
+		schema.Property("setups", schema.Array("本章铺垫的关键线索名称；沿用同名线索，无则为空数组", schema.String(""))).Required(),
+		schema.Property("payoffs", schema.Array("本章兑现的关键线索名称；与对应 setups 同名，无则为空数组", schema.String(""))).Required(),
 	)
 	return schema.Object(
 		schema.Property("from_chapter", schema.Int("从这一章开始替换尚未发生的计划")).Required(),

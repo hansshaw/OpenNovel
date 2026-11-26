@@ -39,6 +39,8 @@ func (t *ExpandNextArcTool) Schema() map[string]any {
 		schema.Property("core_event", schema.String("本章核心事件")).Required(),
 		schema.Property("hook", schema.String("章末钩子")).Required(),
 		schema.Property("scenes", schema.Array("计划场景；无则为空数组", schema.String(""))).Required(),
+		schema.Property("setups", schema.Array("本章铺垫的关键线索名称；无则为空数组", schema.String(""))).Required(),
+		schema.Property("payoffs", schema.Array("本章兑现的关键线索名称；与对应 setups 同名，无则为空数组", schema.String(""))).Required(),
 	)
 	return schema.Object(
 		schema.Property("title", schema.String("结合已完成事实校准后的弧标题")).Required(),

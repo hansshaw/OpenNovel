@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/hansshaw/OpenNovel/internal/domain"
 	"github.com/hansshaw/OpenNovel/internal/errs"
@@ -72,6 +73,22 @@ func (t *PlanChapterTool) Execute(_ context.Context, args json.RawMessage) (json
 			"reason":    fmt.Sprintf("第 %d 章已提交完成，不能重新规划", plan.Chapter),
 		})
 	}
+	for _, field := range []struct{ name, text string }{
+		{"title", plan.Title}, {"goal", plan.Goal}, {"conflict", plan.Conflict}, {"hook", plan.Hook},
+	} {
+		if field.text == "" {
+			return nil, fmt.Errorf("第 %d 章构思缺少 %s: %w", plan.Chapter, field.name, errs.ErrToolArgs)
+		}
+	}
+	required := make(map[string]bool, len(plan.Contract.RequiredBeats))
+	for _, beat := range plan.Contract.RequiredBeats {
+		required[strings.TrimSpace(beat)] = true
+	}
+	for _, move := range plan.Contract.ForbiddenMoves {
+		if text := strings.TrimSpace(move); text != "" && required[text] {
+			return nil, fmt.Errorf("推进项 %q 同时列入 required_beats 和 forbidden_moves，请核对章节契约: %w", text, errs.ErrToolArgs)
+		}
+	}
 	if err := t.store.Progress.ValidateChapterWork(plan.Chapter); err != nil {
 		return nil, err
 	}
@@ -126,10 +143,10 @@ func decodeChapterPlanArgs(args json.RawMessage) (domain.ChapterPlan, error) {
 
 	return domain.ChapterPlan{
 		Chapter:    a.Chapter,
-		Title:      a.Title,
-		Goal:       a.Goal,
-		Conflict:   a.Conflict,
-		Hook:       a.Hook,
+		Title:      strings.TrimSpace(a.Title),
+		Goal:       strings.TrimSpace(a.Goal),
+		Conflict:   strings.TrimSpace(a.Conflict),
+		Hook:       strings.TrimSpace(a.Hook),
 		EmotionArc: a.EmotionArc,
 		Notes:      a.Notes,
 		Contract: domain.ChapterContract{

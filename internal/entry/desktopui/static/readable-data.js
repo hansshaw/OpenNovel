@@ -13,7 +13,7 @@
     character_snapshots: "人物状态快照", timeline: "故事时间线", foreshadows: "伏笔台账", relationships: "人物关系",
     state_changes: "状态变化", character_a: "人物一", character_b: "人物二", relation: "关系", relations: "人物关系",
     chapter: "章节", chapters: "章节", volume: "卷", volumes: "分卷", index: "序号", arcs: "故事弧", goal: "目标",
-    theme: "主题", final: "是否收官卷", core_event: "核心事件", hook: "章节悬念", scenes: "场景安排",
+    theme: "主题", final: "是否收官卷", core_event: "核心事件", hook: "章节悬念", scenes: "场景安排", setups: "埋下伏笔", payoffs: "兑现伏笔",
     volume_id: "卷序号", volume_title: "卷名", arc_id: "故事弧序号", arc_title: "故事弧标题", estimated_chapters: "预计章节数",
     dimensions: "分项评估", dimension: "评估维度", score: "评分", comment: "评语", scope: "评估范围", kind: "类型",
     contract_status: "章节约定完成情况", contract_misses: "未完成的约定", contract_notes: "约定核验说明",

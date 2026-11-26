@@ -186,7 +186,7 @@ func (h *Host) RewriteWorkbenchChapters(ctx context.Context, chapters []int, ins
 		if err != nil {
 			return versions, err
 		}
-		system := "你是小说章节重写作者。仅按用户明确指令重写本章，保留未要求修改的情节、人物、设定与前后衔接。遵守 novel_context 中最新已保存的章节规划、用户原则、风格引用及事实；不要复制参考语料。本次只生成候选版本，不得调用工具或改变其他章节。只输出完整的新章节正文，保留本章标题；不要解释、评语、JSON 或代码围栏。"
+		system := "你是小说章节重写作者。仅按用户明确指令重写本章，保留未要求修改的情节、人物、设定与前后衔接。遵守 novel_context 中最新已保存的章节规划、用户原则、风格引用及事实；章末需接上 working_memory.following_chapter_opening 中已有的下章开头。只让视角人物使用本章当时已知的信息，保持本章的铺垫和兑现。不要复制参考语料。本次只生成候选版本，不得调用工具或改变其他章节。只输出完整的新章节正文，保留本章标题；不要解释、评语、JSON 或代码围栏。"
 		if h.bundle.Voice != "" {
 			system += "\n\n写作标准：\n" + h.bundle.Voice
 		}

@@ -118,7 +118,7 @@ func (s *WorldStore) ensureTimelineProjectionUnlocked(events []domain.TimelineEv
 	return nil
 }
 
-// LoadRecentTimeline 返回最近 window 章内的时间线事件。
+// LoadRecentTimeline 返回进入 current 章之前的 window 章事件，重写时也遵守同一边界。
 func (s *WorldStore) LoadRecentTimeline(current, window int) ([]domain.TimelineEvent, error) {
 	all, err := s.LoadTimeline()
 	if err != nil {
@@ -127,7 +127,7 @@ func (s *WorldStore) LoadRecentTimeline(current, window int) ([]domain.TimelineE
 	minCh := max(current-window, 1)
 	var filtered []domain.TimelineEvent
 	for _, e := range all {
-		if e.Chapter >= minCh {
+		if e.Chapter >= minCh && e.Chapter < current {
 			filtered = append(filtered, e)
 		}
 	}

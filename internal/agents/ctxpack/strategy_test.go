@@ -252,3 +252,43 @@ func TestStoreSummaryCompactCompactsToolLoop(t *testing.T) {
 	llmSummary := corecontext.ContextSummary{Summary: taskHeading + task + "\n\n## 当前进度\n第 3 章进行中"}
 	compact(append([]agentcore.AgentMessage{llmSummary}, msgs[1:]...))
 }
+
+func TestWriterRestoreResumesQueuedRewriteWithOnlyItsReviewIssues(t *testing.T) {
+	st := seededWriterStore(t)
+	progress, err := st.Progress.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress.CompletedChapters = []int{1, 2, 3}
+	progress.CurrentChapter = 4
+	progress.Flow = domain.FlowRewriting
+	progress.PendingRewrites = []int{1, 3}
+	progress.RewriteReason = "保留第一章的误会"
+	if err := st.Progress.Save(progress); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.World.SaveReview(domain.ReviewEntry{
+		Chapter: 3, Scope: "arc", Verdict: "rewrite", AffectedChapters: []int{1, 3},
+		Issues: []domain.ConsistencyIssue{
+			{Description: "补回第一章的失物", Chapters: []int{1}, RequiresChange: true},
+			{Description: "第三章另行补铺垫", Chapters: []int{3}, RequiresChange: true},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pack := &WriterRestorePack{}
+	pack.Refresh(st)
+	msg, ok, err := pack.buildMessage(restoreBudgetTokens)
+	if err != nil || !ok || pack.chapter != 1 {
+		t.Fatalf("failed to restore queued chapter: ch=%d, ok=%v, err=%v", pack.chapter, ok, err)
+	}
+	text := msg.TextContent()
+	for _, marker := range []string{"第一章", "保留第一章的误会", "补回第一章的失物"} {
+		if !strings.Contains(text, marker) {
+			t.Fatalf("missing %s in %s", marker, text)
+		}
+	}
+	if strings.Contains(text, "第三章另行补铺垫") || strings.Contains(text, "失踪者留下的录音带") {
+		t.Fatalf("later corrections or current book-wide facts leaked into chapter one: %s", text)
+	}
+}

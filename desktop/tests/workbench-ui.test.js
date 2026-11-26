@@ -654,3 +654,57 @@ test("chapter workbench starts with compact expandable style references while ov
   h.api.setView("chapters");
   assert.equal(h.$("#style-reference-panel").open, false);
 });
+
+test("directory finds plan details across terms, explains the match and supports exact chapter numbers", () => {
+  const h = harness([planned(1), { ...planned(11), core_event: "清晨交接", setups: ["失踪名单"], payoffs: ["蓝色印章"] }]);
+  const search = value => { h.$("#chapter-search").value = value; h.api.renderChapters(); };
+  search("章11 名单");
+  assert.match(h.text(h.$("#chapter-list")), /埋设 · 失踪名单/);
+  assert.match(h.$("#chapter-count").textContent, /匹配 1 \/ 2/);
+  search("卷名1 印章");
+  assert.match(h.text(h.$("#chapter-list")), /回收 · 蓝色印章/);
+  search("第 １ 章");
+  assert.equal(h.api.state.chapterMatches.length, 1);
+  assert.equal(h.api.state.chapterMatches[0].number, 1);
+  search("完全无此场景");
+  assert.equal(h.api.state.chapterMatches.length, 0);
+  h.$("#chapter-list").children.at(-1).listeners.get("click")();
+  assert.equal(h.api.state.chapterMatches.length, 2);
+  assert.equal(h.$("#chapter-search").value, "");
+  assert.equal(h.requests.length, 0);
+});
+
+test("polling retains directory controls and searching temporarily reveals a collapsed volume", () => {
+  const h = harness([planned(1), planned(2, 2)]);
+  h.api.renderChapters();
+  const volume = h.$("#chapter-list").children[1];
+  volume.open = false;
+  volume.isConnected = true;
+  volume.listeners.get("toggle")();
+  h.api.state.data = { ...h.api.state.data, chapters: structuredClone(h.api.state.data.chapters) };
+  h.api.renderChapters();
+  assert.equal(h.$("#chapter-list").children[1], volume, "polls must keep the focused DOM node");
+  h.$("#chapter-search").value = "卷名2";
+  h.api.renderChapters();
+  assert.equal(h.$("#chapter-list").children[0].open, true);
+  h.$("#chapter-search").value = "";
+  h.api.renderChapters();
+  assert.equal(h.$("#chapter-list").children[1].open, false);
+});
+
+test("outline thread review prioritizes unresolved clues and filters the named threads in long plans", () => {
+  const h = harness();
+  const threads = Array.from({ length: 50 }, (_, i) => ({ name: `航标${i}`, setups: [1], payoffs: [2], status: "paired" }));
+  threads.push({ name: "失约", setups: [1], payoffs: [], status: "missing_payoff" });
+  h.api.state.planning = { outlineThreads: threads };
+  h.api.renderPlanning();
+  const list = h.$("#plan-threads");
+  assert.match(h.text(list.children[0]), /失约.*待安排兑现/);
+  assert.equal(list.children.length, 41);
+  h.$("#plan-thread-pending").checked = true; h.api.renderPlanning();
+  assert.equal(list.children.length, 1);
+  h.$("#plan-thread-search").value = "航标49"; h.$("#plan-thread-pending").checked = false;
+  h.api.renderPlanning(); assert.match(h.text(list), /航标49/);
+  assert.equal(list.children.length, 1);
+  h.api.state.planning = {}; h.api.renderPlanning(); assert.equal(h.$("#plan-threads-panel").hidden, true);
+});
