@@ -43,6 +43,7 @@ type References struct {
 type ContextTool struct {
 	store                  *store.Store
 	refs                   References
+	rewriteReferences      map[string]string
 	style                  string
 	styleStats             *StyleStatsIndex
 	styleReferenceProfiles func() ([]domain.NamedStyleReference, error)
@@ -100,6 +101,13 @@ func NewContextTool(
 		tool.styleReferenceProfiles = styleReferences[0]
 	}
 	return tool
+}
+
+// WithRewriteReferences returns a tool that shares the normal chapter memory
+// builder but uses the supplied reference selection for a candidate rewrite.
+func (t ContextTool) WithRewriteReferences(references map[string]string) *ContextTool {
+	t.rewriteReferences = references
+	return &t
 }
 
 func (t *ContextTool) Name() string { return "novel_context" }
@@ -441,6 +449,9 @@ func (t *ContextTool) loadLayeredSummaries(result map[string]any, chapter, summa
 
 // writerReferences 返回写作参考资料。章节 1 返回全量，后续章节裁剪掉不再需要的模板。
 func (t *ContextTool) writerReferences(chapter int) map[string]string {
+	if t.rewriteReferences != nil {
+		return t.rewriteReferences
+	}
 	refs := map[string]string{}
 	add := func(k, v string) {
 		if v != "" {
