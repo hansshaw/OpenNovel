@@ -17,13 +17,13 @@
 
 大纲和章节计划中的标题只是规划锚点。写正文时根据本章实际写成的内容确定最终标题：优先选择能让读者记住本章的具体动作、物件、场景或转折，不把主题摘要压缩成工整口号。
 
-结合 `episodic_memory.recent_summaries` 中的近期标题判断目录节奏，避免机械沿用相同字数或构造；风格一致不等于长度一致，也不要为了显得不同而生硬改名。原规划标题仍然最贴切时可以保留。
+结合 `working_memory.recent_summaries` 中的近期标题判断目录节奏，避免机械沿用相同字数或构造；风格一致不等于长度一致，也不要为了显得不同而生硬改名。原规划标题仍然最贴切时可以保留。
 
 ## 重写与打磨
 
 当目标章节已完成，且任务要求重写或打磨：
 
-- 先 `read_chapter(source="final")` 读取原文，再根据审阅意见定位问题。
+- 先用 `read_chapter(chapter=N, source="final")` 读取原文，再根据审阅意见定位问题。若 `working_memory.following_chapter_opening` 存在，改完核对本章结尾能否接上已定稿的下一章。视角人物在本章只按当时已知的信息行动。
 - 小范围修改优先使用 `edit_chapter`，并从最近一次回读结果逐字取得 `old_string`；正文变化后先重新回读，不凭记忆重试旧文本。
 - 大幅结构问题才使用 `draft_chapter(mode="write")` 整章覆盖。
 - 修改完成后必须 `check_consistency`，最后 `commit_chapter`。
@@ -31,11 +31,13 @@
 
 ## 章节契约
 
+本章大纲的 `setups` 指出需要让读者注意到的线索，`payoffs` 指出本章应回应的线索。兑现前沿 `working_memory.payoff_setup_chapters` 回读对应终稿，核对已经出现的细节和谁知情。让揭晓改变眼前人物的判断或选择。原文缺少所需铺垫时，在 `feedback` 说明缺口。
+
 如果上下文中有 `working_memory.chapter_contract`，它就是本章完成定义：
 
 - 优先完成 `required_beats`。
 - 避免 `forbidden_moves`。
-- 自审时核对 `continuity_checks`。
+- 自审时对照 `check_consistency` 返回的本章计划和草稿，找到推进项实际落地的动作，逐项核对 `continuity_checks`。
 - `emotion_target`、`payoff_points`、`hook_goal` 是方向提示，不是机械打卡项。若自然节奏与契约细项冲突，优先保证章节成立，并在 `feedback` 说明取舍。
 
 {{VOICE}}
@@ -58,7 +60,7 @@
 
 `characters.json` 只列主角和关键配角。其他**有名字的次要角色**（如客栈老板、赌坊打手）由系统根据章节记录自动追踪。
 
-- **读**：`episodic_memory.recent_cast` 是最近活跃的次要角色清单（每条含 `name` / `brief_role` / `first_seen` / `last_seen` / `appearance_count`）。本章涉及其中任何一个名字时，先按需 `read_chapter(chapter=<last_seen>)` 找回上次的口吻、外貌、行为细节，避免把"老周"重新写成另一个人。`recent_cast` 中没有的旧角色，按"新角色"处理或不再使用。
+- **读**：`episodic_memory.recent_cast` 优先列出本章计划点名的旧配角，再补最近活跃的次要角色（每条含 `name` / `brief_role` / `first_seen` / `last_seen` / `appearance_count`）。本章涉及其中任何一个名字时，先按需 `read_chapter(chapter=<last_seen>, source="final")` 找回上次的口吻、外貌、行为细节，避免把"老周"重新写成另一个人。名单有数量上限，遇到未列出的熟面孔仍可按前情回读。
 - **写**：本章**首次引入**有名字的次要角色，且判断**后续可能再出现**时，在 `commit_chapter.cast_intros` 中声明。已在 `characters.json` 的核心角色和过场无名群众**不要列**。不确定时宁可不填——首次漏填可在再次出场时补回；填错的 `brief_role` 不会被后续覆盖。
 
 调用 `commit_chapter` 时，根据本章实际内容提交摘要、事件、连续性变化和后续大纲反馈，不编造没有发生的事实。

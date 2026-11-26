@@ -133,3 +133,47 @@ func TestChapterEditorCannotSaveToAnotherProjectOrWhileBusy(t *testing.T) {
 		t.Fatalf("busy guard: %d", code)
 	}
 }
+
+func TestChapterEditorThreadMarkersRoundTripViaPlanningReview(t *testing.T) {
+	s := newTestServer(t, false)
+	seedChapterEditor(t, s)
+	edit := func(chapter string, fields map[string]any, expected int) {
+		t.Helper()
+		view := getChapterEditor(t, s, chapter)
+		body := map[string]any{"directory": s.dir, "expectedRevision": view.Revision, "savePlan": true,
+			"title": view.Title, "volumeTitle": view.VolumeTitle, "coreEvent": view.CoreEvent, "hook": view.Hook, "scenes": view.Scenes}
+		for key, value := range fields {
+			body[key] = value
+		}
+		if code, message := saveChapterEditor(s, chapter, body); code != expected {
+			t.Fatalf("save markers: %d %s", code, message)
+		}
+	}
+	const thread = "缺角的车票"
+	edit("1", map[string]any{"setups": []string{" " + thread, thread}}, 200)
+	edit("2", map[string]any{"payoffs": []string{thread}}, 200)
+	edit("1", map[string]any{"hook": "看清票根的日期"}, 200) // Older clients omit marker fields.
+	assertThread := func(want string) {
+		t.Helper()
+		var result struct {
+			OutlineThreads []struct {
+				Name, Status    string
+				Setups, Payoffs []int
+			}
+		}
+		w := request(s, "GET", "/api/planning?directory="+url.QueryEscape(s.dir), "")
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.OutlineThreads) != 1 {
+			t.Fatal(w.Body.String())
+		}
+		item := result.OutlineThreads[0]
+		if item.Name != thread || item.Status != want || len(item.Setups) != 1 || item.Setups[0] != 1 ||
+			(want == "paired" && (len(item.Payoffs) != 1 || item.Payoffs[0] != 2)) {
+			t.Fatalf("thread: %+v", item)
+		}
+	}
+	assertThread("paired")
+	edit("1", map[string]any{"setups": []string{"invalid\nmarker"}}, 400)
+	assertThread("paired")
+	edit("2", map[string]any{"payoffs": []string{}}, 200)
+	assertThread("missing_payoff")
+}

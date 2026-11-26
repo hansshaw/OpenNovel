@@ -277,8 +277,8 @@ Architect / Editor 只清理旧的 `novel_context` 读取结果：这些数据�
 - 最近章节摘要
 - 当前章节计划
 - 当前章节大纲
-- 当前弧摘要
-- 当前卷摘要
+- 当前弧之前已完成的最近弧摘要
+- 当前卷之前已完成的最近卷摘要
 - 角色快照
 - 活跃伏笔
 - 待修审稿问题
@@ -454,7 +454,9 @@ Architect / Editor 各有一套检查点式 prompt（`architect_context.go` / `e
   - 最近章节摘要
   - 时间线
   - checkpoint
-  - previous tail
+  - `previous_tail` 提供前章终稿结尾
+  - `payoff_setup_chapters` 给出本章线索兑现对应的前文铺垫章号，供回读核实
+  - `following_chapter_opening` 提供紧邻的下章终稿开头，方便修订已完成章节时核对衔接
 
 - `episodic_memory`
   - 角色状态
@@ -472,6 +474,10 @@ Architect / Editor 各有一套检查点式 prompt（`architect_context.go` / `e
 
 - 它决定了每一轮真正“喂给模型”的结构化小说上下文
 - `StoreSummaryCompact` 不是调用它本身，但和它复用同类数据来源与装配思路
+
+例如，在全书写到第 20 章后重写第 8 章，系统重放第 1 至 7 章的接纳记录，得到第 8 章开始时仍未兑现的伏笔与当时的人物关系。第 9 章的开头单独放在工作记忆中，方便对照第 8 章结尾。草稿自审使用相同的章前状态。进入上下文压缩时，待返工队列优先确定目标章和审稿意见。将章节计划与当前故事事实一起交给作者的设计借鉴了 [Re³](https://aclanthology.org/2022.emnlp-main.296/)。
+
+在工作台生成重写候选稿时，作者会收到原稿、用户指定的修改范围与篇幅、章前事实和本书风格。举例来说，要求“只把结尾改成约一百字的对话”时，改稿提示要求保留其余段落原文。这个入口使用简短的改稿标准，保留自定义参考资料。常规新章创作仍按章加载完整的写作教程。
 
 ## 8. ContextProfile 与 MemoryPolicy
 
@@ -633,8 +639,8 @@ Scope 的中文标签：
 
 先看：
 
-- `LoadLatestSnapshots`
-- `LoadActiveForeshadow`
+- `LoadSnapshotsBeforeChapter`
+- `revision.LoadChapterOpening`
 - `ctxpack/builder.go`
 - Writer summary prompt 是否被覆盖
 

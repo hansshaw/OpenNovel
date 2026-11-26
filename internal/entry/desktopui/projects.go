@@ -20,6 +20,7 @@ import (
 	"github.com/hansshaw/OpenNovel/internal/domain"
 	"github.com/hansshaw/OpenNovel/internal/fileio"
 	"github.com/hansshaw/OpenNovel/internal/host"
+	"github.com/hansshaw/OpenNovel/internal/planning"
 	"github.com/hansshaw/OpenNovel/internal/store"
 )
 
@@ -1050,6 +1051,6 @@ func (s *Server) planning(w http.ResponseWriter, r *http.Request) {
 		"directory": s.dir, "premise": premise, "outline": outline,
 		"layered": layered, "book": book, "workflow": workflow,
 		"compass": compass, "foundationAudit": audit, "characters": characters,
-		"worldRules": worldRules, "warnings": warnings,
+		"worldRules": worldRules, "warnings": warnings, "outlineThreads": planning.OutlineThreads(outline),
 	})
 }

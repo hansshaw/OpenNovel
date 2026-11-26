@@ -183,6 +183,11 @@ func TestCreativeDesktopWorkflow(t *testing.T) {
 	if revisedPlan.Workflow.Approved || revisedPlan.Snapshot.CompletedCount != 1 || !bytes.Equal(chapter, api("GET", "/api/chapters/1", nil, 200)) {
 		t.Fatal("planning revision must invalidate consent while preserving completed prose")
 	}
+	if err := json.Unmarshal(api("GET", "/api/planning", nil, 200), &planning); err != nil ||
+		len(planning.Outline) != 2 || len(planning.Outline[0].Setups) != 1 || len(planning.Outline[1].Payoffs) != 1 ||
+		planning.Outline[0].Setups[0] != "父亲的回信" || planning.Outline[1].Payoffs[0] != "父亲的回信" {
+		t.Fatalf("revised outline lost the cross-volume promise: %+v (%v)", planning.Outline, err)
+	}
 	if !bytes.Equal(originalBrief, api("GET", "/api/cocreate", nil, 200)) {
 		t.Fatal("planning revision changed the first-stage co-creation record")
 	}
@@ -415,12 +420,12 @@ func (m *creativeWorkflowModel) respond(req creativeWorkflowRequest) (string, st
 			switch step {
 			case 7:
 				return "", "save_foundation", map[string]any{"type": "outline", "scale": "short", "content": []any{
-					map[string]any{"chapter": 1, "title": "旧信", "volume_id": 1, "volume_title": "旧信", "core_event": "林舟找到父亲旧信并和解", "hook": "他开始写回信", "scenes": []string{"书库寻找", "读信和解"}},
-					map[string]any{"chapter": 2, "title": "返航", "volume_id": 2, "volume_title": "归途", "core_event": "林舟准备启程", "hook": "地球的蓝光", "scenes": []string{"整理行李", "离开书库"}},
+					map[string]any{"chapter": 1, "title": "旧信", "volume_id": 1, "volume_title": "旧信", "core_event": "林舟找到父亲旧信并和解", "hook": "他开始写回信", "scenes": []string{"书库寻找", "读信和解"}, "setups": []string{"父亲的回信"}},
+					map[string]any{"chapter": 2, "title": "返航", "volume_id": 2, "volume_title": "归途", "core_event": "林舟准备启程", "hook": "地球的蓝光", "scenes": []string{"整理行李", "离开书库"}, "payoffs": []string{"父亲的回信"}},
 				}}, nil
 			case 10:
 				return "", "revise_outline", map[string]any{"from_chapter": 2, "reason": "用户要求调整第二章返航事件", "replacement": []any{
-					map[string]any{"title": "返航", "volume_id": 2, "volume_title": "归途", "core_event": "林舟带着回信返回地球", "hook": "地球的蓝光", "scenes": []string{"启程", "回信抵达地球"}},
+					map[string]any{"title": "返航", "volume_id": 2, "volume_title": "归途", "core_event": "林舟带着回信返回地球", "hook": "地球的蓝光", "scenes": []string{"启程", "回信抵达地球"}, "setups": []string{}, "payoffs": []string{"父亲的回信"}},
 				}}, nil
 			case 8, 11:
 				return "", "novel_context", map[string]any{}, nil

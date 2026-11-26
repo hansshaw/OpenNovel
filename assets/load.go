@@ -88,6 +88,30 @@ func Load(style string, opts LoadOptions) Bundle {
 	}
 }
 
+// CandidateRewriteReferences preserves the loaded style material and replaces
+// only unchanged built-in chapter tutorials with the candidate editor's brief.
+// A modified reference may contain project-specific instructions.
+func (b *Bundle) CandidateRewriteReferences() map[string]string {
+	refs := b.References
+	selected := make(map[string]string)
+	for _, ref := range []struct{ key, file, value string }{
+		{key: "anti_ai_tone", value: refs.AntiAITone},
+		{key: "style_reference", value: refs.StyleReference},
+		{key: "consistency", file: "consistency.md", value: refs.Consistency},
+		{key: "hook_techniques", file: "hook-techniques.md", value: refs.HookTechniques},
+		{key: "quality_checklist", file: "quality-checklist.md", value: refs.QualityChecklist},
+		{key: "chapter_guide", file: "chapter-guide.md", value: refs.ChapterGuide},
+		{key: "dialogue_writing", file: "dialogue-writing.md", value: refs.DialogueWriting},
+		{key: "chapter_template", file: "chapter-template.md", value: refs.ChapterTemplate},
+		{key: "content_expansion", file: "content-expansion.md", value: refs.ContentExpansion},
+	} {
+		if ref.value != "" && (ref.file == "" || ref.value != mustRead(referencesFS, "references/"+ref.file)) {
+			selected[ref.key] = ref.value
+		}
+	}
+	return selected
+}
+
 // voicePlaceholder 是 writer 协议模板中文风段的原位插入点。
 const voicePlaceholder = "{{VOICE}}"
 

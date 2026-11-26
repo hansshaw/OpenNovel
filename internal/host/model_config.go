@@ -42,7 +42,6 @@ func (h *Host) ReconfigureModels(candidate bootstrap.Config, persist func() erro
 	}
 	h.models.ApplyPrepared(prepared)
 	h.cfg = candidate
-	h.applyThinkingLocked("default")
 	return nil
 }
 
@@ -302,9 +301,6 @@ func (h *Host) ConfigureModels(draft ModelConfigurationDraft) error {
 
 	h.models.ApplyPrepared(prepared)
 	h.cfg = candidate
-	// 模型客户端被重建后重新下发推理强度：applyThinkingLocked 按各角色的新模型能力钳制生效值，
-	// 存储的强度意图保持不变。
-	h.applyThinkingLocked("default")
 	summary := fmt.Sprintf("Provider 配置已保存：%s → %s", draft.Provider, h.configPath)
 	if draft.Provider != h.cfg.Provider {
 		summary += "；使用 /model 切换"
@@ -429,10 +425,17 @@ func (h *Host) TestModelConnection(ctx context.Context, draft ModelConfiguration
 	if err != nil {
 		return fmt.Errorf("创建测试模型客户端失败: %w", err)
 	}
-	if _, err := models.Default.Generate(ctx, []agentcore.Message{agentcore.UserMsg("Reply OK.")}, nil); err != nil {
+	if err := ProbeModelConnection(ctx, models.Default); err != nil {
 		return fmt.Errorf("连接测试失败（%s/%s）: %w", preparedDraft.draft.Provider, modelName, err)
 	}
 	return nil
+}
+
+// ProbeModelConnection tests the selected model using the default reasoning
+// preference. A provider connection test has no project role or fallback.
+func ProbeModelConnection(ctx context.Context, model agentcore.ChatModel) error {
+	_, err := model.Generate(ctx, []agentcore.Message{agentcore.UserMsg("Reply OK.")}, nil)
+	return err
 }
 
 func (h *Host) modelReferencesLocked(provider, model string) []string {

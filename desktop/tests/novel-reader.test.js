@@ -540,3 +540,61 @@ test("the most recent same-chapter search hit wins when chapter responses arrive
   assert.equal(rows[1].attributes["aria-current"], "true"); assert.equal(rows[0].attributes["aria-current"], "false");
   assert.equal(marks(h).length, 1); h.panel.destroy();
 });
+
+test("reader pages scoped matches, navigates across groups and discards a superseded request", async () => {
+  const h = harness(), original = h.getRespond(), old = deferred();
+  let oldSignal;
+  const content = "🌗星".repeat(103);
+  const match = index => ({ chapter: 1, title: "初航", excerpt: "🌗星", start: index * 2 + 1, length: 1, contentHash: "same" });
+  h.respond(async (url, options) => {
+    if (url.startsWith("/api/reader/chapter")) return { number: 1, title: "初航", content, contentHash: "same" };
+    if (!url.startsWith("/api/reader/search?")) return original(url, options);
+    const params = new URL(url, "http://test").searchParams;
+    if (params.get("q") === "旧查询") { oldSignal = options.signal; return old.promise; }
+    assert.equal(params.get("chapter"), "1");
+    return params.has("cursor") ? { matches: [100, 101, 102].map(match) }
+      : { matches: Array.from({ length: 100 }, (_, i) => match(i)), nextCursor: "continue" };
+  });
+  await h.panel.openBook("book");
+  h.$("nr-search-input").value = "旧查询"; const pending = h.$("nr-search-submit").fire("click");
+  h.$("nr-search-scope").value = "chapter"; h.$("nr-search-input").value = "星";
+  await h.$("nr-search-scope").fire("change"); assert.equal(oldSignal.aborted, true);
+  old.resolve({ matches: [] }); await pending;
+  assert.match(h.$("nr-search-results").textContent, /1–100/);
+  await h.$("nr-search-results").children.at(-1).fire("click");
+  await h.$("nr-search-next").fire("click");
+  assert.match(h.$("nr-status").textContent, /第 101 处/);
+  assert.equal(h.$("nr-search-page-next").disabled, true);
+  assert.match(h.$("nr-search-results").textContent, /101–103/);
+  await h.$("nr-search-prev").fire("click");
+  assert.match(h.$("nr-status").textContent, /第 100 处/);
+  await h.$("nr-search-page-next").fire("click"); await h.$("nr-search-page-prev").fire("click");
+  assert.match(h.$("nr-search-results").textContent, /第 1 章 · 显示第 1–100/);
+  h.panel.destroy();
+});
+
+test("a pending result page ignores old hits and current-chapter search follows chapter navigation", async () => {
+  const h = harness(), original = h.getRespond(), more = deferred(), chapterLoad = deferred();
+  const fixture = chapter => ({ chapter, title: "暮色", start: 0, length: 1, excerpt: "灯" });
+  h.respond(async (url, options) => {
+    if (url.startsWith("/api/reader/chapter/2")) return chapterLoad.promise;
+    if (!url.startsWith("/api/reader/search?")) return original(url, options);
+    const params = new URL(url, "http://test").searchParams;
+    if (params.has("cursor")) return more.promise;
+    const chapter = Number(params.get("chapter"));
+    assert.ok(chapter === 1 || chapter === 2);
+    return { matches: [fixture(chapter)], nextCursor: chapter === 1 ? "more" : "" };
+  });
+  await h.panel.openBook("book");
+  h.$("nr-search-input").value = "灯"; h.$("nr-search-scope").value = "chapter"; await h.$("nr-search-scope").fire("change");
+  const oldRow = h.$("nr-search-results").children[1];
+  const paging = h.$("nr-search-page-next").fire("click");
+  assert.equal(oldRow.disabled, true); await oldRow.fire("click");
+  assert.equal(h.calls.filter(c => c.url.startsWith("/api/reader/chapter/")).length, 1);
+  more.resolve({ matches: [fixture(1)] }); await paging;
+  const opening = h.panel.openChapter(2);
+  assert.equal(h.$("nr-search-submit").disabled, true); await h.$("nr-search-submit").fire("click");
+  chapterLoad.resolve({ number: 2, content: "灯下", title: "晚归" }); await opening;
+  assert.match(h.$("nr-search-results").textContent, /第 2 章/);
+  h.panel.destroy();
+});
