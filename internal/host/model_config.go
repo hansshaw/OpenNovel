@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hansshaw/OpenNovel/internal/agents"
 	"github.com/hansshaw/OpenNovel/internal/bootstrap"
 	"github.com/voocel/agentcore"
 )
@@ -429,10 +430,27 @@ func (h *Host) TestModelConnection(ctx context.Context, draft ModelConfiguration
 	if err != nil {
 		return fmt.Errorf("创建测试模型客户端失败: %w", err)
 	}
-	if _, err := models.Default.Generate(ctx, []agentcore.Message{agentcore.UserMsg("Reply OK.")}, nil); err != nil {
+	if err := ProbeModelConnection(ctx, models.Default, testConfig.ResolveReasoningEffort("default")); err != nil {
 		return fmt.Errorf("连接测试失败（%s/%s）: %w", preparedDraft.draft.Provider, modelName, err)
 	}
 	return nil
+}
+
+// ProbeModelConnection tests the selected model using the default reasoning
+// preference. A provider connection test has no project role or fallback.
+func ProbeModelConnection(ctx context.Context, model agentcore.ChatModel, effort string) error {
+	options := modelThinkingOptions(model, effort)
+	_, err := model.Generate(ctx, []agentcore.Message{agentcore.UserMsg("Reply OK.")}, nil, options...)
+	return err
+}
+
+func modelThinkingOptions(model agentcore.ChatModel, effort string) []agentcore.CallOption {
+	level, _ := agents.ParseThinkingLevel(effort)
+	resolved, _ := agents.ResolveThinkingForModel(model, level)
+	if resolved == agentcore.ThinkingAuto {
+		return nil
+	}
+	return []agentcore.CallOption{agentcore.WithThinking(resolved)}
 }
 
 func (h *Host) modelReferencesLocked(provider, model string) []string {

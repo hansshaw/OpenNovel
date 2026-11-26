@@ -174,7 +174,7 @@ func coCreateCompactMessages(summary string, history []CoCreateMessage, target i
 	return []agentcore.Message{agentcore.SystemMsg(coCreateCompactPrompt), agentcore.UserMsg(data.String())}
 }
 
-func prepareCoCreateContext(ctx context.Context, model agentcore.ChatModel, sys string, history []CoCreateMessage, budget coCreateBudget) (coCreateContext, error) {
+func prepareCoCreateContext(ctx context.Context, model agentcore.ChatModel, sys string, history []CoCreateMessage, budget coCreateBudget, options ...agentcore.CallOption) (coCreateContext, error) {
 	raw, checkpoint := coCreateHistoryAndCheckpoint(history)
 	result := coCreateContext{Checkpoint: checkpoint, Budget: budget}
 	inputLimit := budget.Window - budget.Output - budget.Safety
@@ -221,7 +221,7 @@ func prepareCoCreateContext(ctx context.Context, model agentcore.ChatModel, sys 
 			if end == covered {
 				return result, fmt.Errorf("共创输入超出上下文窗口：单轮历史连同摘要无法放入 %d tokens 窗口；原始对话已保留，请增大窗口或缩短单条输入", budget.Window)
 			}
-			response, err := model.Generate(bootstrap.WithModelRequestAgent(ctx, "cocreate_compaction"), compactMessages, nil, agentcore.WithMaxTokens(summaryOutput))
+			response, err := model.Generate(bootstrap.WithModelRequestAgent(ctx, "cocreate_compaction"), compactMessages, nil, append(options, agentcore.WithMaxTokens(summaryOutput))...)
 			result.Budget.CompactionCalls++
 			if err != nil {
 				return result, fmt.Errorf("共创上下文压缩失败（原始对话和草稿未改变）: %w", err)

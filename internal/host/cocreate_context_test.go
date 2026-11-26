@@ -88,7 +88,7 @@ func TestCoCreateProjectionRemovesOnlySupersededDrafts(t *testing.T) {
 func TestCoCreateLengthRetriesWithModelBudgetWithoutPartialDraft(t *testing.T) {
 	model := &coCreateBudgetModel{firstStop: agentcore.StopReasonLength}
 	models := &bootstrap.ModelSet{Default: bootstrap.NewSwappableModel("test", "cocreate", model, nil)}
-	reply, err := coCreateStream(context.Background(), models, nil, "system", []CoCreateMessage{{Role: "user", Content: "规划一部小说"}}, nil)
+	reply, err := coCreateStream(context.Background(), models, "", nil, "system", []CoCreateMessage{{Role: "user", Content: "规划一部小说"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestCoCreateLengthRetriesWithModelBudgetWithoutPartialDraft(t *testing.T) {
 func TestCoCreateSafetyDoesNotRetry(t *testing.T) {
 	model := &coCreateBudgetModel{firstStop: agentcore.StopReasonSafety}
 	models := &bootstrap.ModelSet{Default: bootstrap.NewSwappableModel("test", "cocreate", model, nil)}
-	reply, err := coCreateStream(context.Background(), models, nil, "system", []CoCreateMessage{{Role: "user", Content: "规划一部小说"}}, nil)
+	reply, err := coCreateStream(context.Background(), models, "", nil, "system", []CoCreateMessage{{Role: "user", Content: "规划一部小说"}}, nil)
 	if err == nil || reply.Ready || len(model.requests) != 1 {
 		t.Fatalf("safety response retried: reply=%+v calls=%d err=%v", reply, len(model.requests), err)
 	}
