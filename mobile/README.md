@@ -38,11 +38,13 @@
 | --- | --- |
 | Go | 1.26 或更新；手机绑定模块独立于桌面模块 |
 | JDK | 17 |
-| Gradle | 8.11.1 |
-| Android Gradle Plugin | 8.9.1 |
-| Android SDK | Platform 35、Build Tools 35.0.0、Platform Tools |
+| Gradle | 9.6.0 |
+| Android Gradle Plugin | 9.5.2 |
+| Android SDK | Platform 35、Build Tools 36.0.0、Platform Tools |
 | Android NDK | 28.0.13004108 |
 | gomobile / gobind | `v0.0.0-20261011034528-197770444867` |
+
+Gradle、JDK 和 Build Tools 的版本对应 [Google 发布的 AGP 9.5 兼容性表](https://developer.android.com/build/releases/agp-9-5-0-release-notes#compatibility)。
 
 应用最低 Android 8.0（API 26），target SDK 35。默认构建包含 arm64-v8a、armeabi-v7a 和 x86_64。实际兼容性需要在相应设备验收，并保持 Android System WebView 更新。
 
@@ -51,10 +53,10 @@
 ```bash
 export JAVA_HOME=/你的/jdk-17
 export ANDROID_HOME=/你的/Android/Sdk
-export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:/你的/gradle-8.11.1/bin:$PATH"
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:/你的/gradle-9.6.0/bin:$PATH"
 
 sdkmanager --licenses
-sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;28.0.13004108" "platform-tools"
+sdkmanager "platforms;android-35" "build-tools;36.0.0" "ndk;28.0.13004108" "platform-tools"
 
 # 在仓库根目录运行
 bash mobile/scripts/setup-go-tools.sh

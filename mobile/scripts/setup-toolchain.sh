@@ -5,7 +5,7 @@ set -euo pipefail
 source "$(dirname -- "$0")/env.sh"
 
 if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
-  printf 'This bootstrap supports Linux x86_64. Install Java 17 and Gradle 8.11.1 on your platform, then run setup-go-tools.sh.\n' >&2
+  printf 'This bootstrap supports Linux x86_64. Install Java 17 and Gradle %s on your platform, then run setup-go-tools.sh.\n' "$AINOVEL_GRADLE_VERSION" >&2
   exit 1
 fi
 mkdir -p "$AINOVEL_TOOLCHAIN/downloads"
@@ -30,12 +30,12 @@ if ! command -v javac >/dev/null 2>&1; then
   ln -sfn 'jdk-17.0.21+9' "$AINOVEL_TOOLCHAIN/jdk"
 fi
 
-if [[ ! -x "$AINOVEL_TOOLCHAIN/gradle-8.11.1/bin/gradle" ]]; then
-  gradle_archive="$AINOVEL_TOOLCHAIN/downloads/gradle-8.11.1-bin.zip"
+if [[ ! -x "$AINOVEL_TOOLCHAIN/gradle-${AINOVEL_GRADLE_VERSION}/bin/gradle" ]]; then
+  gradle_archive="$AINOVEL_TOOLCHAIN/downloads/gradle-${AINOVEL_GRADLE_VERSION}-bin.zip"
   download_verified \
-    "${AINOVEL_GRADLE_DOWNLOAD_URL:-https://services.gradle.org/distributions/gradle-8.11.1-bin.zip}" \
+    "${AINOVEL_GRADLE_DOWNLOAD_URL:-https://services.gradle.org/distributions/gradle-${AINOVEL_GRADLE_VERSION}-bin.zip}" \
     "$gradle_archive" \
-    'f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6'
+    'bbaeb2fef8710818cf0e261201dab964c572f92b942812df0c3620d62a529a01'
   unzip -q "$gradle_archive" -d "$AINOVEL_TOOLCHAIN"
 fi
 "$AINOVEL_ROOT/mobile/scripts/setup-go-tools.sh"
