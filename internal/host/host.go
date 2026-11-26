@@ -160,7 +160,6 @@ func New(cfg bootstrap.Config, bundle assets.Bundle, options ...NewOption) (*Hos
 	if err := store.RunMeta.Init(cfg.Style, cfg.Provider, cfg.ModelName); err != nil {
 		return nil, fmt.Errorf("init run meta: %w", err)
 	}
-	// 起后台 goroutine 从 OpenRouter 刷新模型元数据（窗口/价格），磁盘缓存 24h。
 	var configPath, metadataDir, homeRulesDir string
 	if opts.userDataDir != "" {
 		configPath = filepath.Join(opts.userDataDir, "config.json")
@@ -170,10 +169,32 @@ func New(cfg bootstrap.Config, bundle assets.Bundle, options ...NewOption) (*Hos
 		configPath, metadataDir = bootstrap.EffectiveConfigPath(), bootstrap.DefaultConfigDir()
 		homeRulesDir = rules.DefaultHomeRulesDir()
 	}
-	modelreg.StartPricingRefresh(modelreg.DefaultRegistry(), metadataDir)
+	ctx, cancel := context.WithCancel(context.Background())
+	h := &Host{
+		cfg:        cfg,
+		bundle:     bundle,
+		store:      store,
+		bookLease:  bookLease,
+		configPath: configPath,
+		logCleanup: logCleanup,
+		fileLogErr: fileLogErr,
+		events:     make(chan Event, 100),
+		streamCh:   make(chan string, 256),
+		done:       make(chan struct{}, 4),
+		lifecycle:  lifecycleIdle,
+		runCtx:     ctx,
+		runCancel:  cancel,
+	}
+	// Keep loading the metadata cache alongside model setup. Close must own
+	// both the HTTP request and the subsequent writes to the user data dir.
+	h.launchAsync(func() {
+		modelreg.RefreshPricing(ctx, modelreg.DefaultRegistry(), metadataDir)
+	})
 
 	models, err := bootstrap.NewModelSet(cfg)
 	if err != nil {
+		cancel()
+		h.asyncWG.Wait()
 		return nil, fmt.Errorf("create models: %w", err)
 	}
 	slog.Info("模型就绪", "module", "boot", "summary", models.Summary())
@@ -216,26 +237,12 @@ func New(cfg bootstrap.Config, bundle assets.Bundle, options ...NewOption) (*Hos
 		ProjectRulesDir: rules.DefaultProjectRulesDir(cfg.OutputDir),
 	}
 
-	h := &Host{
-		cfg:           cfg,
-		bundle:        bundle,
-		store:         store,
-		bookLease:     bookLease,
-		styleStats:    styleStats,
-		models:        models,
-		writerRestore: restore,
-		userRules:     userrules.NewService(store, models.Default, ruleOptions),
-		usage:         usage,
-		usageCancel:   usageCancel,
-		configPath:    configPath,
-		logCleanup:    logCleanup,
-		fileLogErr:    fileLogErr,
-		events:        make(chan Event, 100),
-		streamCh:      make(chan string, 256),
-		done:          make(chan struct{}, 4),
-		lifecycle:     lifecycleIdle,
-	}
-	h.runCtx, h.runCancel = context.WithCancel(context.Background())
+	h.models = models
+	h.styleStats = styleStats
+	h.writerRestore = restore
+	h.userRules = userrules.NewService(store, models.Default, ruleOptions)
+	h.usage = usage
+	h.usageCancel = usageCancel
 	h.observer = newObserver(store, h.models, h.emitEvent, h.emitDelta, h.emitClear)
 	workers.SetEventObserver(func(meta subagent.RunMeta, ev agentcore.Event) {
 		h.observer.handleWorkerEvent(meta.Agent, ev)

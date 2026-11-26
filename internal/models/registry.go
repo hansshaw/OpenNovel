@@ -41,7 +41,7 @@ var (
 )
 
 // DefaultRegistry 返回全局注册表（懒加载，线程安全）。
-// 启动阶段调用 StartPricingRefresh 可让后台刷新价格/窗口信息。
+// 启动阶段调用 RefreshPricing 可刷新价格/窗口信息。
 func DefaultRegistry() *ModelRegistry {
 	defaultRegistryOnce.Do(func() {
 		defaultRegistry = NewModelRegistry()
